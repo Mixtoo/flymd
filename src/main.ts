@@ -1,7 +1,7 @@
 /*
   flymd 主入口（中文注释）
   - 极简编辑器：<textarea>
-  - Ctrl+E 切换编辑/预览
+  - Ctrl+E 切换编辑/阅读
   - Ctrl+O 打开、Ctrl+S 保存、Ctrl+Shift+S 另存为、Ctrl+N 新建
   - 拖放文件打开
 */
@@ -184,7 +184,7 @@ function stopDotBlink() {
 let selectedFolderPath: string | null = null
 let selectedNodeEl: HTMLElement | null = null
 // 库面板停靠状态：true=固定在左侧并收缩编辑区；false=覆盖式抽屉
-let libraryDocked = false
+let libraryDocked = true
 function selectLibraryNode(el: HTMLElement | null, path: string | null, isDir: boolean) {
   try {
     if (selectedNodeEl) selectedNodeEl.classList.remove('selected')
@@ -512,7 +512,7 @@ app.innerHTML = `
       <div class="menu-item" id="btn-open" title="打开 (Ctrl+O)">文件</div>
       <div class="menu-item" id="btn-save" title="保存 (Ctrl+S)">保存</div>
       <div class="menu-item" id="btn-saveas" title="另存为 (Ctrl+Shift+S)">另存为</div>
-      <div class="menu-item" id="btn-toggle" title="编辑/预览 (Ctrl+E)">预览</div>
+      <div class="menu-item" id="btn-toggle" title="编辑/阅读 (Ctrl+E)">阅读</div>
       <div class="menu-item" id="btn-extensions" title="扩展与插件管理">扩展</div>
     </div>
     <div class="filename" id="filename">未命名</div>
@@ -1199,7 +1199,7 @@ let _wheelHandlerRef: ((e: WheelEvent)=>void) | null = null
               <button id="about-close" class="about-close" title="关闭">×</button>
             </div>
             <div class="about-body">
-              <p>跨平台的轻量的Markdown 编辑预览器。</p>
+              <p>跨平台的轻量的Markdown 编辑阅读工具</p>
             </div>
           </div>
         `
@@ -2320,7 +2320,7 @@ async function toggleMode() {
     if (!wysiwyg) try { preview.classList.add('hidden') } catch {}
     try { editor.focus() } catch {}
   }
-  ;(document.getElementById('btn-toggle') as HTMLButtonElement).textContent = mode === 'edit' ? '预览' : '编辑'
+  ;(document.getElementById('btn-toggle') as HTMLButtonElement).textContent = mode === 'edit' ? '阅读' : '编辑'
 }
 
 // 打开文件
