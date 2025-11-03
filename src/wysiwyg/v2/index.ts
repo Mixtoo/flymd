@@ -227,6 +227,23 @@ export async function enableWysiwygV2(root: HTMLElement, initialMd: string, onCh
         pm.addEventListener('mousemove', (ev: MouseEvent) => { try { _hoverTarget = ev.target as HTMLElement; scheduleOverlayRender() } catch {} })
         pm.addEventListener('mouseleave', () => { try { _hoverTarget = null; scheduleOverlayRender() } catch {} })
       } catch {}
+      // 光标所在块触发渲染：selectionchange 时根据锚点元素更新目标
+      try {
+        document.addEventListener('selectionchange', () => {
+          try {
+            const sel = window.getSelection()
+            if (!sel || !sel.anchorNode) return
+            const anchorEl = (sel.anchorNode.nodeType === 1
+              ? (sel.anchorNode as Element)
+              : (sel.anchorNode as Node).parentElement) as HTMLElement | null
+            if (!anchorEl) return
+            // 仅当选区在所见编辑器内时才生效
+            if (!pm.contains(anchorEl)) return
+            _hoverTarget = anchorEl
+            scheduleOverlayRender()
+          } catch {}
+        })
+      } catch {}
     }
     const host = _root?.firstElementChild as HTMLElement | null
     if (host) {
@@ -371,13 +388,35 @@ async function renderKatexInto(el: HTMLDivElement, src: string, display: boolean
   }
 }
 
+// 从当前元素出发，跨兄弟节点查找“块级 $$ ... $$”区域
+function findBlockMathRegion(fromEl: HTMLElement): { start: HTMLElement; end: HTMLElement; content: string } | null {
+  try {
+    const isDollarsLine = (el: HTMLElement | null): boolean => !!el && /^\s*\$\$\s*$/.test((el.textContent || '').trim())
+    // 找开头 $$
+    let start: HTMLElement | null = fromEl
+    while (start && !isDollarsLine(start)) start = start.previousElementSibling as HTMLElement | null
+    if (!start && isDollarsLine(fromEl)) start = fromEl
+    if (!start) return null
+    // 找结尾 $$
+    let end: HTMLElement | null = start.nextElementSibling as HTMLElement | null
+    const between: HTMLElement[] = []
+    while (end) {
+      if (isDollarsLine(end)) break
+      between.push(end)
+      end = end.nextElementSibling as HTMLElement | null
+    }
+    if (!end || between.length === 0) return null
+    const content = between.map((n) => n.textContent || '').join('\n').trim()
+    if (!content) return null
+    return { start, end, content }
+  } catch { return null }
+}
+
 function renderOverlaysNow() {
   const host = getHost()
   const ov = ensureOverlayHost()
   if (!host || !ov) return
   try { ov.innerHTML = '' } catch {}
-  // 清理上一次为预览预留的空间
-  try { Array.from(host.querySelectorAll('[data-ov-mb]')).forEach((el) => { try { (el as HTMLElement).style.marginBottom = ''; (el as HTMLElement).style.paddingBottom = ''; (el as HTMLElement).removeAttribute('data-ov-mb') } catch {} }) } catch {}
   const hostRc = (_root as HTMLElement).getBoundingClientRect()
   const addOverlay = (rect: DOMRect, cls: string, render: (el: HTMLDivElement)=>void) => {
     const wrap = document.createElement('div')
@@ -411,19 +450,7 @@ function renderOverlaysNow() {
       if (lang === 'mermaid') {
         const code = (codeEl?.textContent || '').trim()
         const rc = pre.getBoundingClientRect()
-        addOverlay(rc, 'ov-mermaid', (pane) => {
-          void (async () => {
-            await renderMermaidInto(pane, code)
-            try {
-              const update = () => {
-                const h = pane.offsetHeight
-                pre.style.paddingBottom = Math.max(8, h + 8) + 'px'
-                pre.setAttribute('data-ov-mb', '1')
-              }
-              try { requestAnimationFrame(update) } catch { update() }
-            } catch {}
-          })()
-        })
+        addOverlay(rc, 'ov-mermaid', (pane) => { void (async () => { await renderMermaidInto(pane, code) })() })
         return
       }
     } catch {}
@@ -432,24 +459,10 @@ function renderOverlaysNow() {
   const blk = (target as HTMLElement).closest('p,li,div') as HTMLElement | null
   if (blk && !blk.closest('pre')) {
     try {
-      const text = blk.textContent || ''
-      const m = text.match(/\$\$([\s\S]+?)\$\$/)
-      if (m && m[1]) {
-        const src = (m[1] || '').trim()
-        const rc = blk.getBoundingClientRect()
-        addOverlay(rc, 'ov-katex', (pane) => {
-          void (async () => {
-            await renderKatexInto(pane, src, true)
-            try {
-              const update = () => {
-                const h = pane.offsetHeight
-                blk.style.paddingBottom = Math.max(8, h + 8) + 'px'
-                blk.setAttribute('data-ov-mb', '1')
-              }
-              try { requestAnimationFrame(update) } catch { update() }
-            } catch {}
-          })()
-        })
+      const region = findBlockMathRegion(blk)
+      if (region) {
+        const rc = region.end.getBoundingClientRect()
+        addOverlay(rc, 'ov-katex', (pane) => { void (async () => { await renderKatexInto(pane, region.content, true) })() })
       }
     } catch {}
   }
