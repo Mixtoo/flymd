@@ -29,6 +29,10 @@ let _overlayHost: HTMLDivElement | null = null
 let _activeMermaidPre: HTMLElement | null = null
 // 记录上一次激活的 mermaid 源代码块，避免切换时残留/闪烁
 let _lastMermaidPre: HTMLElement | null = null
+// 鼠标与光标分别记录，避免事件互相“顶掉”导致不渲染
+// 优先级：光标所在（selection）优先于鼠标悬停（mouse）
+let _activeMermaidPreBySelection: HTMLElement | null = null
+let _activeMermaidPreByMouse: HTMLElement | null = null
 
 function toLocalAbsFromSrc(src: string): string | null {
   try {
@@ -381,7 +385,10 @@ function onPmMouseMove(ev: MouseEvent) {
       const lang = (langFromAttr || langFromClass || '').toLowerCase()
       return lang === 'mermaid' ? pre : null
     })()
-    if (hit !== _activeMermaidPre) { _activeMermaidPre = hit; scheduleMermaidRender() }
+    // 鼠标只是辅助手段：仅在没有光标命中的情况下生效
+    _activeMermaidPreByMouse = hit
+    const next = _activeMermaidPreBySelection || _activeMermaidPreByMouse
+    if (next !== _activeMermaidPre) { _activeMermaidPre = next; scheduleMermaidRender() }
   } catch {}
 }
 
@@ -396,7 +403,10 @@ function onPmSelectionChange() {
     const langFromAttr = pre ? (pre.getAttribute('data-language') || pre.getAttribute('data-lang') || '').toLowerCase() : ''
     const lang = (langFromAttr || langFromClass || '').toLowerCase()
     const hit = (lang === 'mermaid' ? pre : null) as HTMLElement | null
-    if (hit !== _activeMermaidPre) { _activeMermaidPre = hit; scheduleMermaidRender() }
+    // 光标优先级最高：直接覆盖选择源，再与鼠标源合并计算
+    _activeMermaidPreBySelection = hit
+    const next = _activeMermaidPreBySelection || _activeMermaidPreByMouse
+    if (next !== _activeMermaidPre) { _activeMermaidPre = next; scheduleMermaidRender() }
   } catch {}
 }
 

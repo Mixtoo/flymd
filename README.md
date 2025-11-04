@@ -47,15 +47,17 @@
 - 文本格式化：`Ctrl+B` 加粗、`Ctrl+I` 斜体
 - 插入链接：`Ctrl+K` 打开自定义弹窗（文本/URL），支持 ESC/按钮/遮罩关闭
 
-### 👁️ 预览
-- `Ctrl+E` 一键切换编辑/预览模式
-- `Ctrl+R` 快速进入阅读模式（所见模式下同样生效）
+### 👁️ 阅读
+- `Ctrl+E` 一键切换编辑/阅读模式
+- `Ctrl+R` 快速进入阅读模式
 - 基于 `markdown-it` 的高质量渲染
 - `highlight.js` 代码高亮（按需加载）
 - `DOMPurify` HTML 安全消毒，放行必要的 SVG 标签/属性
 - 外链自动添加 `target="_blank"` 和 `rel="noopener noreferrer"`
 - 本地图片路径自动转换为 `asset:`，Tauri 中本地图片可正常显示
 - KaTeX（LaTeX 公式）与 Mermaid（流程/时序图等）
+> Latex示例 `$E=MC^2$`  （实时渲染，双击进行修改）
+> 所见模式中mermaid编辑的时候实时渲染，编辑完成后鼠标悬浮激活渲染。其他时候不渲染
 
 ### 💾 文件
 - 打开 (`Ctrl+O`)：支持 `.md`、`.markdown`、`.txt`
