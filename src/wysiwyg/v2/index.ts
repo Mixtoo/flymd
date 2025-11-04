@@ -1,6 +1,7 @@
 // 所见模式 V2：基于 Milkdown 的真实所见编辑视图
 // 暴露 enable/disable 与 setMarkdown/getMarkdown 能力，供主流程挂接
 
+import 'katex/dist/katex.min.css'
 import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx, editorViewCtx, commandsCtx } from '@milkdown/core'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { readFile } from '@tauri-apps/plugin-fs'
@@ -12,6 +13,7 @@ import { automd } from '@milkdown/plugin-automd'
 import { listener, listenerCtx } from '@milkdown/plugin-listener'
 import { upload, uploadConfig } from '@milkdown/plugin-upload'
 import { uploader } from './plugins/paste'
+import { remarkMathPlugin, katexOptionsCtx, mathInlineSchema, mathBlockSchema, mathInlineInputRule } from '@milkdown/plugin-math'
 // 注：保留 automd 插件以提供编辑功能，通过 CSS 隐藏其 UI 组件
 // 引入富文本所见视图的必要样式（避免工具条/布局错乱导致不可编辑/不可滚动）
 // 注：不直接导入 @milkdown/crepe/style.css，避免 Vite 对未导出的样式路径解析失败。
@@ -24,7 +26,9 @@ let _lastMd = ''
 let _imgObserver: MutationObserver | null = null
 let _overlayTimer: number | null = null
 let _overlayHost: HTMLDivElement | null = null
-let _hoverTarget: HTMLElement | null = null
+let _activeMermaidPre: HTMLElement | null = null
+// 记录上一次激活的 mermaid 源代码块，避免切换时残留/闪烁
+let _lastMermaidPre: HTMLElement | null = null
 
 function toLocalAbsFromSrc(src: string): string | null {
   try {
@@ -189,6 +193,7 @@ export async function enableWysiwygV2(root: HTMLElement, initialMd: string, onCh
     })
     .use(commonmark)
     .use(gfm)
+    .use(remarkMathPlugin).use(katexOptionsCtx).use(mathInlineSchema).use(mathBlockSchema).use(mathInlineInputRule)
     .use(automd)
     .use(listener)
     .use(upload)
@@ -204,9 +209,9 @@ export async function enableWysiwygV2(root: HTMLElement, initialMd: string, onCh
   } catch {}
   // 初次渲染后重写本地图片为 asset: url（仅影响 DOM，不改 Markdown）
   try { setTimeout(() => { try { rewriteLocalImagesToAsset() } catch {} }, 0) } catch {}
-  // 首次挂载后运行一次增强渲染（Mermaid / LaTeX 块）
-  try { setTimeout(() => { try { scheduleOverlayRender() } catch {} }, 60) } catch {}
-  try { window.addEventListener('resize', () => { try { scheduleOverlayRender() } catch {} }) } catch {}
+  // 首次挂载后运行一次增强渲染（Mermaid 块）
+  try { setTimeout(() => { try { scheduleMermaidRender() } catch {} }, 60) } catch {}
+  try { window.addEventListener('resize', () => { try { scheduleMermaidRender() } catch {} }) } catch {}
   // 成功创建后清理占位文案（仅移除纯文本节点，不影响编辑器 DOM）
   try {
     if (_root && _root.firstChild && (_root.firstChild as any).nodeType === 3) {
@@ -220,30 +225,17 @@ export async function enableWysiwygV2(root: HTMLElement, initialMd: string, onCh
       pm.style.display = 'block'
       pm.style.minHeight = '100%'
       pm.style.width = '100%'
-      // 滚动时也刷新覆盖渲染（重定位预览块）
-      try { pm.addEventListener('scroll', () => { try { scheduleOverlayRender() } catch {} }) } catch {}
-      // 悬停命中才渲染：跟踪鼠标移动与离开
-      try {
-        pm.addEventListener('mousemove', (ev: MouseEvent) => { try { _hoverTarget = ev.target as HTMLElement; scheduleOverlayRender() } catch {} })
-        pm.addEventListener('mouseleave', () => { try { _hoverTarget = null; scheduleOverlayRender() } catch {} })
-      } catch {}
-      // 光标所在块触发渲染：selectionchange 时根据锚点元素更新目标
-      try {
-        document.addEventListener('selectionchange', () => {
-          try {
-            const sel = window.getSelection()
-            if (!sel || !sel.anchorNode) return
-            const anchorEl = (sel.anchorNode.nodeType === 1
-              ? (sel.anchorNode as Element)
-              : (sel.anchorNode as Node).parentElement) as HTMLElement | null
-            if (!anchorEl) return
-            // 仅当选区在所见编辑器内时才生效
-            if (!pm.contains(anchorEl)) return
-            _hoverTarget = anchorEl
-            scheduleOverlayRender()
-          } catch {}
-        })
-      } catch {}
+      // 滚动时刷新覆盖渲染（重定位 Mermaid 预览块）
+      try { pm.addEventListener('scroll', () => { try { scheduleMermaidRender() } catch {} }) } catch {}
+      // 鼠标/光标触发 Mermaid 渲染（非实时）
+      try { pm.addEventListener('mousemove', (ev) => { try { onPmMouseMove(ev as any) } catch {} }, true) } catch {}
+      try { document.addEventListener('selectionchange', () => { try { onPmSelectionChange() } catch {} }, true) } catch {} 
+      // 双击 KaTeX / Mermaid 进入源码模式
+      try { pm.addEventListener('dblclick', (ev) => {
+  const t = ev.target as HTMLElement | null;
+  const hit = t?.closest?.("div[data-type='math_block']") || t?.closest?.("span[data-type='math_inline']");
+  if (hit) { ev.stopPropagation(); try { enterLatexSourceEdit(hit as HTMLElement) } catch {} }
+}, true) } catch {} 
     }
     const host = _root?.firstElementChild as HTMLElement | null
     if (host) {
@@ -259,17 +251,9 @@ export async function enableWysiwygV2(root: HTMLElement, initialMd: string, onCh
     try {
       lm.docChanged((_ctx) => {
         if (_suppressInitialUpdate) return
-        try { if (_writeBackTimer != null) { clearTimeout(_writeBackTimer as any); _writeBackTimer = null } } catch {}
-      _writeBackTimer = window.setTimeout(async () => {
-        try {
-          const md = await (editor as any).action(getMarkdown())
-          _lastMd = md
-          _onChange?.(md)
-        } catch {}
-      }, 80)
-      // 文档变更后，稍后刷新自动预览层
-      scheduleOverlayRender()
-    })
+        scheduleMermaidRender()
+        try { scheduleMathBlockReparse() } catch {}
+      })
     } catch {}
     lm.markdownUpdated((_ctx, markdown) => {
       if (_suppressInitialUpdate) return
@@ -295,8 +279,8 @@ export async function enableWysiwygV2(root: HTMLElement, initialMd: string, onCh
       _lastMd = md2
       try { _onChange?.(md2) } catch {}
       try { setTimeout(() => { try { rewriteLocalImagesToAsset() } catch {} }, 0) } catch {}
-      // Markdown 更新时，也刷新增强渲染
-      scheduleOverlayRender()
+      // Markdown 更新时，也刷新 Mermaid 渲染
+      scheduleMermaidRender()
     })
   } catch {}
   _suppressInitialUpdate = false
@@ -335,10 +319,16 @@ export async function wysiwygV2ReplaceAll(markdown: string) {
   try { await _editor.action(replaceAll(markdown)) } catch {}
 }
 
-// =============== 自动渲染覆盖层：Mermaid 代码块 + $$...$$ 数学块 ===============
-function scheduleOverlayRender() {
-  try { if (_overlayTimer != null) { clearTimeout(_overlayTimer); _overlayTimer = null } } catch {}
-  _overlayTimer = window.setTimeout(() => { try { renderOverlaysNow() } catch {} }, 120)
+// =============== 自动渲染覆盖层：Mermaid 代码块 ===============
+// 全局渲染节流定时器
+let _renderThrottleTimer: number | null = null
+// 记录已渲染的 Mermaid 图表，避免重复渲染导致闪烁
+const _renderedMermaid = new WeakMap<HTMLElement, string>()
+
+function scheduleMermaidRender() {
+  try { if (_renderThrottleTimer != null) { clearTimeout(_renderThrottleTimer); _renderThrottleTimer = null } } catch {}
+  // 使用节流：300ms 内多次调用只执行一次
+  _renderThrottleTimer = window.setTimeout(() => { try { renderMermaidNow() } catch {} }, 300)
 }
 
 function getHost(): HTMLElement | null {
@@ -378,97 +368,278 @@ async function renderMermaidInto(el: HTMLDivElement, code: string) {
   }
 }
 
-async function renderKatexInto(el: HTMLDivElement, src: string, display: boolean) {
+
+function onPmMouseMove(ev: MouseEvent) {
   try {
-    const mod: any = await import('katex')
-    const katex = mod?.default || mod
-    katex.render(src || '', el, { displayMode: !!display, throwOnError: false, output: 'html' })
-  } catch (e) {
-    el.innerHTML = `<div style=\"color:crimson;\">KaTeX 渲染失败：${(e as any)?.message || e}</div>`
-  }
+    const t = ev.target as HTMLElement | null
+    const pre = t?.closest?.('pre') as HTMLElement | null
+    const hit = (() => {
+      if (!pre) return null
+      const codeEl = pre.querySelector('code') as HTMLElement | null
+      const langFromClass = codeEl ? /\\blanguage-([\\w-]+)\\b/.exec(codeEl.className || '')?.[1] : ''
+      const langFromAttr = (pre.getAttribute('data-language') || pre.getAttribute('data-lang') || '').toLowerCase()
+      const lang = (langFromAttr || langFromClass || '').toLowerCase()
+      return lang === 'mermaid' ? pre : null
+    })()
+    if (hit !== _activeMermaidPre) { _activeMermaidPre = hit; scheduleMermaidRender() }
+  } catch {}
 }
 
-// 从当前元素出发，跨兄弟节点查找“块级 $$ ... $$”区域
-function findBlockMathRegion(fromEl: HTMLElement): { start: HTMLElement; end: HTMLElement; content: string } | null {
+function onPmSelectionChange() {
   try {
-    const isDollarsLine = (el: HTMLElement | null): boolean => !!el && /^\s*\$\$\s*$/.test((el.textContent || '').trim())
-    // 找开头 $$
-    let start: HTMLElement | null = fromEl
-    while (start && !isDollarsLine(start)) start = start.previousElementSibling as HTMLElement | null
-    if (!start && isDollarsLine(fromEl)) start = fromEl
-    if (!start) return null
-    // 找结尾 $$
-    let end: HTMLElement | null = start.nextElementSibling as HTMLElement | null
-    const between: HTMLElement[] = []
-    while (end) {
-      if (isDollarsLine(end)) break
-      between.push(end)
-      end = end.nextElementSibling as HTMLElement | null
+    const sel = window.getSelection()
+    const n = sel?.focusNode as (Node & { parentElement?: HTMLElement }) | null
+    const el = (n && (n as any).nodeType === 1 ? (n as any as HTMLElement) : n?.parentElement) as HTMLElement | null
+    const pre = el?.closest?.('pre') as HTMLElement | null
+    const codeEl = pre?.querySelector?.('code') as HTMLElement | null
+    const langFromClass = codeEl ? /\\blanguage-([\\w-]+)\\b/.exec(codeEl.className || '')?.[1] : ''
+    const langFromAttr = pre ? (pre.getAttribute('data-language') || pre.getAttribute('data-lang') || '').toLowerCase() : ''
+    const lang = (langFromAttr || langFromClass || '').toLowerCase()
+    const hit = (lang === 'mermaid' ? pre : null) as HTMLElement | null
+    if (hit !== _activeMermaidPre) { _activeMermaidPre = hit; scheduleMermaidRender() }
+  } catch {}
+}
+
+// ===== Latex 源码编辑：在 KaTeX 上方叠加一个 textarea 进行就地编辑，保存后仅更新该数学节点 =====
+
+//  闭合后再渲染（不在输入起始处触发）
+let _mathReparseTimer: number | null = null
+function scheduleMathBlockReparse() {
+  try { if (_mathReparseTimer != null) { clearTimeout(_mathReparseTimer); _mathReparseTimer = null } } catch {}
+  _mathReparseTimer = window.setTimeout(async () => {
+    try {
+      const mdNow = await (_editor as any).action(getMarkdown())
+      if (/\$\$[\s\S]*?\$\$/m.test(String(mdNow || ''))) {
+        await (_editor as any).action(replaceAll(String(mdNow || '')))
+      }
+    } catch {}
+  }, 240)
+}
+function updateMilkdownMathFromDom(mathEl: HTMLElement, newValue: string) {
+  try {
+    const view: any = (_editor as any)?.ctx?.get?.(editorViewCtx)
+    if (!view || !mathEl) return
+    let pos: number | null = null
+    try { pos = view.posAtDOM(mathEl, 0) } catch {}
+    if (pos == null || typeof pos !== 'number') return
+    const state = view.state
+    const $pos = state.doc.resolve(pos)
+    let from = pos, to = pos
+    const isMath = (n: any) => !!n && (n.type?.name === 'math_inline' || n.type?.name === 'math_block')
+    if ($pos.nodeAfter && isMath($pos.nodeAfter)) { to = pos + $pos.nodeAfter.nodeSize }
+    else if ($pos.nodeBefore && isMath($pos.nodeBefore)) { from = pos - $pos.nodeBefore.nodeSize }
+    const schema = state.schema
+    const isBlock = (mathEl.dataset?.type === 'math_block' || mathEl.tagName === 'DIV')
+    let node: any
+    if (isBlock) {
+      const t = schema.nodes['math_block']
+      node = t?.create?.({ value: String(newValue || '') })
+    } else {
+      const t = schema.nodes['math_inline']
+      const text = schema.text(String(newValue || ''))
+      node = t?.create?.({}, text)
     }
-    if (!end || between.length === 0) return null
-    const content = between.map((n) => n.textContent || '').join('\n').trim()
-    if (!content) return null
-    return { start, end, content }
-  } catch { return null }
+    if (!node) return
+    const tr = state.tr.replaceRangeWith(from, to, node)
+    view.dispatch(tr.scrollIntoView())
+  } catch {}
 }
 
-function renderOverlaysNow() {
+function enterLatexSourceEdit(hitEl: HTMLElement) {
+  try {
+    const mathEl = (hitEl.closest("div[data-type='math_block']") as HTMLElement) || (hitEl.closest("span[data-type='math_inline']") as HTMLElement)
+    if (!mathEl) return
+    const code = (mathEl.dataset?.value || mathEl.textContent || '').trim()
+    const ov = ensureOverlayHost()
+    const hostRc = (_root as HTMLElement).getBoundingClientRect()
+    const rc = mathEl.getBoundingClientRect()
+    const wrap = document.createElement('div')
+    wrap.className = 'ov-katex'
+    wrap.style.position = 'absolute'
+    wrap.style.pointerEvents = 'none'
+    wrap.style.left = Math.max(0, rc.left - hostRc.left) + 'px'
+    wrap.style.top = Math.max(0, rc.top - hostRc.top) + 'px'
+    wrap.style.width = Math.max(10, rc.width) + 'px'
+    const inner = document.createElement('div')
+    inner.style.pointerEvents = 'auto'
+    inner.style.background = 'var(--wysiwyg-bg)'
+    inner.style.borderRadius = '4px'
+    inner.style.padding = '6px'
+    inner.style.boxSizing = 'border-box'
+    inner.style.display = 'flex'
+    inner.style.alignItems = 'stretch'
+    const ta = document.createElement('textarea')
+    ta.value = ((mathEl.dataset?.type === 'math_block' || mathEl.tagName === 'DIV') ? ('$$\n' + (code || '') + '\n$$') : ('$' + (code || '') + '$'))
+    ta.style.width = '100%'
+    ta.style.minHeight = (mathEl.dataset?.type === 'math_block' ? Math.max(40, rc.height) : 32) + 'px'
+    ta.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+    ta.style.fontSize = '14px'
+    ta.style.lineHeight = '1.4'
+    ta.style.resize = 'vertical'
+    ta.addEventListener('keydown', (ev) => {
+      if ((ev as KeyboardEvent).key === 'Escape') { try { ov?.removeChild(wrap) } catch {}; return }
+      if ((ev as KeyboardEvent).key === 'Enter' && ((ev as KeyboardEvent).ctrlKey || (ev as KeyboardEvent).metaKey)) {
+        ev.preventDefault()
+        let v = ta.value
+        v = String(v || '').trim(); const isBlock = (mathEl.dataset?.type === 'math_block' || mathEl.tagName === 'DIV'); if (isBlock) { const m = v.match(/^\s*\$\$\s*[\r\n]?([\s\S]*?)\s*[\r\n]?\$\$\s*$/); if (m) v = m[1] } else { const m = v.match(/^\s*\$([\s\S]*?)\$\s*$/); if (m) v = m[1] }; updateMilkdownMathFromDom(mathEl, v)
+        try { ov?.removeChild(wrap) } catch {}
+      }
+    })
+    ta.addEventListener('blur', () => { try { ov?.removeChild(wrap) } catch {} })
+    inner.appendChild(ta)
+    wrap.appendChild(inner)
+    ov?.appendChild(wrap)
+    setTimeout(() => { try { ta.focus(); ta.select() } catch {} }, 0)
+  } catch {}
+}
+function renderMermaidNow() {
   const host = getHost()
   const ov = ensureOverlayHost()
   if (!host || !ov) return
-  try { ov.innerHTML = '' } catch {}
-  const hostRc = (_root as HTMLElement).getBoundingClientRect()
-  const addOverlay = (rect: DOMRect, cls: string, render: (el: HTMLDivElement)=>void) => {
-    const wrap = document.createElement('div')
-    wrap.className = cls
-    wrap.style.position = 'absolute'
-    wrap.style.left = Math.max(0, rect.left - hostRc.left) + 'px'
-    wrap.style.top = Math.max(0, rect.bottom - hostRc.top + 4) + 'px'
-    wrap.style.width = Math.max(10, rect.width) + 'px'
-    wrap.style.pointerEvents = 'none'
-    const inner = document.createElement('div')
-    inner.style.pointerEvents = 'none'
-    inner.style.background = 'var(--bg)'
-    inner.style.borderRadius = '8px'
-    inner.style.padding = '6px'
-    inner.style.border = '1px solid var(--border-strong)'
-    wrap.appendChild(inner)
-    ov.appendChild(wrap)
-    render(inner)
-  }
-  // 仅针对鼠标悬停的元素渲染覆盖层
-  const target = _hoverTarget
-  if (!target) return
-  // 1) 优先：mermaid 代码块
-  const pre = (target as HTMLElement).closest('pre') as HTMLElement | null
-  if (pre) {
-    try {
-      const codeEl = pre.querySelector('code') as HTMLElement | null
-      const langFromClass = codeEl ? /\blanguage-([\w-]+)\b/.exec(codeEl.className || '')?.[1] : ''
-      const langFromAttr = (pre.getAttribute('data-language') || pre.getAttribute('data-lang') || '').toLowerCase()
-      const lang = (langFromAttr || langFromClass || '').toLowerCase()
-      if (lang === 'mermaid') {
-        const code = (codeEl?.textContent || '').trim()
-        const rc = pre.getBoundingClientRect()
-        addOverlay(rc, 'ov-mermaid', (pane) => { void (async () => { await renderMermaidInto(pane, code) })() })
-        return
-      }
-    } catch {}
-  }
-  // 2) 其次：块级数学 $$...$$ 所在块
-  const blk = (target as HTMLElement).closest('p,li,div') as HTMLElement | null
-  if (blk && !blk.closest('pre')) {
-    try {
-      const region = findBlockMathRegion(blk)
-      if (region) {
-        const rc = region.end.getBoundingClientRect()
-        addOverlay(rc, 'ov-katex', (pane) => { void (async () => { await renderKatexInto(pane, region.content, true) })() })
-      }
-    } catch {}
-  }
-}
 
-// =============== 所见模式：编辑命令桥接（加粗/斜体/链接） ===============
+  // 如果激活的 mermaid 源码块发生变化，则移除旧的覆盖层，避免残留
+  try {
+    if (_activeMermaidPre !== _lastMermaidPre) {
+      const all = ov.querySelectorAll('.ov-mermaid')
+      all.forEach(el => { try { (el as HTMLElement).parentElement?.removeChild(el) } catch {} })
+      _lastMermaidPre = _activeMermaidPre
+    }
+  } catch {}
+
+  // 还原此前被隐藏的源码元素
+  try {
+    const hiddenElements = host.querySelectorAll('[data-wysiwyg-hidden="true"]')
+    hiddenElements.forEach((el) => {
+      try {
+        (el as HTMLElement).style.color = ''
+        (el as HTMLElement).style.userSelect = ''
+        (el as HTMLElement).style.minHeight = ''
+        el.removeAttribute('data-wysiwyg-hidden')
+      } catch {}
+    })
+  } catch {}
+
+  // 清空之前的覆盖层
+// (disabled) 不再强制清空覆盖层，避免闪烁
+  const hostRc = (_root as HTMLElement).getBoundingClientRect()
+
+  // Mermaid 覆盖渲染
+  try {
+    const pres: HTMLElement[] = _activeMermaidPre ? [_activeMermaidPre] : []
+    for (const pre of pres) {
+      try {
+        const codeEl = pre.querySelector('code') as HTMLElement | null
+        const langFromClass = codeEl ? /\blanguage-([\w-]+)\b/.exec(codeEl.className || '')?.[1] : ''
+        const langFromAttr = (pre.getAttribute('data-language') || pre.getAttribute('data-lang') || '').toLowerCase()
+        const lang = (langFromAttr || langFromClass || '').toLowerCase()
+
+        if (lang === 'mermaid') {
+          const code = (codeEl?.textContent || '').trim()
+          const cached = _renderedMermaid.get(pre)
+          if (cached === code) {
+            try {
+              const rc = pre.getBoundingClientRect()
+              const exist = ov.querySelector('.ov-mermaid') as HTMLDivElement | null
+              if (exist) {
+                exist.style.left = Math.max(0, rc.left - hostRc.left) + 'px'
+                exist.style.top = Math.max(0, rc.bottom - hostRc.top + 6) + 'px'
+                exist.style.width = Math.max(10, rc.width) + 'px'
+              } else {
+                const wrap = document.createElement('div')
+                wrap.className = 'ov-mermaid'
+                wrap.style.position = 'absolute'
+                wrap.style.left = Math.max(0, rc.left - hostRc.left) + 'px'
+                wrap.style.top = Math.max(0, rc.bottom - hostRc.top + 6) + 'px'
+                wrap.style.width = Math.max(10, rc.width) + 'px'
+                wrap.style.pointerEvents = 'none'
+                wrap.style.cursor = 'text'
+                wrap.style.zIndex = '10'
+                const inner = document.createElement('div')
+                inner.style.pointerEvents = 'none'
+                inner.style.background = 'var(--wysiwyg-bg)'
+                inner.style.borderRadius = '4px'
+                inner.style.padding = '8px'
+                inner.style.opacity = '1'
+                inner.style.minHeight = '20px'
+                inner.style.boxSizing = 'border-box'
+                wrap.appendChild(inner)
+                ov.appendChild(wrap)
+                void (async () => { try { await renderMermaidInto(inner, code) } catch {} })()
+              }
+            } catch {}
+            continue
+          }
+
+          _renderedMermaid.set(pre, code)
+          const rc = pre.getBoundingClientRect()
+
+          // 生成 Mermaid 覆盖层
+          const wrap = document.createElement('div')
+          wrap.className = 'ov-mermaid'
+          wrap.style.position = 'absolute'
+          wrap.style.left = Math.max(0, rc.left - hostRc.left) + 'px'
+          wrap.style.top = Math.max(0, rc.bottom - hostRc.top + 6) + 'px'
+          wrap.style.width = Math.max(10, rc.width) + 'px'
+          wrap.style.pointerEvents = 'none'
+          wrap.style.cursor = 'text'
+          wrap.style.zIndex = '10'
+
+          const inner = document.createElement('div')
+          inner.style.pointerEvents = 'none'
+          inner.style.background = 'var(--wysiwyg-bg)'
+          inner.style.borderRadius = '4px'
+          inner.style.padding = '8px'
+          inner.style.opacity = '0'
+          inner.style.transition = 'opacity 0.15s ease-in'
+          inner.style.minHeight = '20px'
+          inner.style.boxSizing = 'border-box'
+
+          // 双击进入局部源码编辑（不切换整页）
+          wrap.addEventListener('dblclick', (e) => {
+            e.stopPropagation()
+            try { wrap.style.display = 'none' } catch {}
+            try { pre.scrollIntoView({ block: 'center', behavior: 'smooth' }) } catch {}
+            try {
+              const range = document.createRange()
+              const sel = window.getSelection()
+              range.selectNodeContents(pre)
+              sel?.removeAllRanges()
+              sel?.addRange(range)
+              if (codeEl) (codeEl as any).focus?.()
+            } catch {}
+          })
+
+          wrap.appendChild(inner)
+          ov.appendChild(wrap)
+
+          // 隐藏源码
+// keep source visible: pre.style.color untouched
+// keep source selectable
+// keep source attributes unchanged
+
+          // 渲染 Mermaid 并立即调整占位高度，避免遮挡后文
+          void (async () => {
+            await renderMermaidInto(inner, code)
+            try {
+              const renderedHeight = inner.getBoundingClientRect().height
+              const sourceHeight = pre.getBoundingClientRect().height
+// keep source minHeight unchanged
+            } catch {}
+            requestAnimationFrame(() => { try { inner.style.opacity = '1' } catch {} })
+          })()
+        }
+      } catch {}
+    }
+  } catch {}
+
+
+
+
+
+
+
+}
+// =============== 所见模式内编辑快捷：加粗 / 斜体 / 链接 ===============
 export async function wysiwygV2ToggleBold() {
   if (!_editor) return
   const { toggleStrongCommand } = await import('@milkdown/preset-commonmark')
@@ -484,15 +655,13 @@ export async function wysiwygV2ApplyLink(href: string, title?: string) {
   const { toggleLinkCommand, updateLinkCommand } = await import('@milkdown/preset-commonmark')
   await _editor.action((ctx) => {
     const commands = ctx.get(commandsCtx)
-    // 优先：若有选区，切换/更新链接
+    // 优先：尝试对选区插入/切换链接
     if (!commands.call((toggleLinkCommand as any).key, { href, title })) {
-      // 兜底：尝试更新当前链接 mark（如果光标处已有）
+      // 其次：若已存在 mark，则尝试在当前 mark 上更新
       commands.call((updateLinkCommand as any).key, { href, title })
     }
   })
 }
-
-
 
 
 
