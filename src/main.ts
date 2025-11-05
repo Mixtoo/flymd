@@ -1569,9 +1569,14 @@ async function openLinkDialog(presetLabel: string, presetUrl = 'https://'): Prom
 }
 // 更新标题和未保存标记
 function refreshTitle() {
-  const name = currentFilePath ? currentFilePath.split(/[/\\]/).pop() : '未命名'
-  filenameLabel.textContent = name + (dirty ? ' *' : '')
-  document.title = `飞速MarkDown v${APP_VERSION} - ${name}${dirty ? ' *' : ''}`
+  // 以文件名为主；未保存附加 *；悬浮显示完整路径；同步 OS 窗口标题
+  const full = currentFilePath || ''
+  const name = full ? (full.split(/[/\\]/).pop() || '未命名') : '未命名'
+  const label = name + (dirty ? ' *' : '')
+  filenameLabel.textContent = label
+  try { filenameLabel.title = full || name } catch {}
+  document.title = label
+  try { void getCurrentWindow().setTitle(label) } catch {}
 }
 
 // 更新状态栏（行列）
