@@ -386,8 +386,11 @@ body > .block-menu { display: none !important; }
 .library .lib-btn:hover { background: rgba(127,127,127,0.14); }
 .library .lib-tree { padding: 8px 6px 14px 6px; font-size: 13px; }
 .library .lib-outline { padding: 8px 6px 14px 6px; font-size: 13px; }
-.library .lib-outline .ol-item { padding: 3px 4px; border-radius: 6px; cursor: pointer; }
+.library .lib-outline .ol-item { padding: 3px 4px; border-radius: 6px; cursor: pointer; font-weight: 400; }
 .library .lib-outline .ol-item:hover { background: rgba(127,127,127,0.08); }
+.library .lib-outline .ol-item.active { background: rgba(37,99,235,0.12); border-left: 2px solid #2563eb; }
+.library .lib-outline .ol-tg { display: inline-block; width: 14px; height: 14px; line-height: 14px; text-align: center; margin-right: 4px; border-radius: 3px; color: var(--muted); }
+.library .lib-outline .ol-item:hover .ol-tg { color: var(--fg); }
 .library .lib-outline .lvl-1 { margin-left: 0; font-weight: 600; }
 .library .lib-outline .lvl-2 { margin-left: 10px; }
 .library .lib-outline .lvl-3 { margin-left: 20px; }

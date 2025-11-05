@@ -1284,9 +1284,7 @@ let _wheelHandlerRef: ((e: WheelEvent)=>void) | null = null
         tabOutline?.classList.toggle('active', kind === 'outline')
         if (treeEl) treeEl.classList.toggle('hidden', kind !== 'files')
         if (outlineEl) outlineEl.classList.toggle('hidden', kind !== 'outline')
-        if (kind === 'outline') {
-          try { renderOutlinePanel() } catch {}
-        }
+        if (kind === 'outline') { try { renderOutlinePanel() } catch {} }
       } catch {}
     }
     tabFiles?.addEventListener('click', () => activateLibTab('files'))
@@ -1897,6 +1895,8 @@ async function renderPreview() {
       preview.innerHTML = ''
       preview.appendChild(buf)
       try { decorateCodeBlocks(preview) } catch {}
+      // 预览更新后自动刷新大纲（节流由内部逻辑与渲染频率保障）
+      try { renderOutlinePanel() } catch {}
     } catch {}
   } catch {} finally { try { preview.classList.remove('rendering') } catch {} }
   // 重新计算所见模式锚点表
@@ -2879,6 +2879,40 @@ async function setLibrarySort(mode: LibSortMode) {
   } catch {}
 }
 
+// —— 大纲滚动同步 ——
+let _outlineScrollBound = false
+let _outlineActiveId = ''
+let _outlineRaf = 0
+function bindOutlineScrollSync() {
+  if (_outlineScrollBound) return
+  const pv = document.querySelector('.preview') as HTMLElement | null
+  if (pv) { pv.addEventListener('scroll', onOutlineScroll, { passive: true }) }
+  _outlineScrollBound = true
+}
+function onOutlineScroll() {
+  if (_outlineRaf) cancelAnimationFrame(_outlineRaf)
+  _outlineRaf = requestAnimationFrame(() => { try { updateOutlineActive() } catch {} })
+}
+function updateOutlineActive() {
+  try {
+    const pv = document.querySelector('.preview') as HTMLElement | null
+    const body = document.querySelector('.preview .preview-body') as HTMLElement | null
+    const outline = document.getElementById('lib-outline') as HTMLDivElement | null
+    if (!pv || !body || !outline || outline.classList.contains('hidden')) return
+    const heads = Array.from(body.querySelectorAll('h1,h2,h3,h4,h5,h6')) as HTMLElement[]
+    if (heads.length === 0) return
+    const pvRect = pv.getBoundingClientRect()
+    const threshold = pvRect.top + 60
+    let active: HTMLElement | null = null
+    for (const h of heads) { const r = h.getBoundingClientRect(); if (r.top <= threshold) active = h; else break }
+    if (!active) active = heads[0]
+    const id = active.getAttribute('id') || ''
+    if (!id || id === _outlineActiveId) return
+    _outlineActiveId = id
+    outline.querySelectorAll('.ol-item').forEach((el) => { (el as HTMLDivElement).classList.toggle('active', (el as HTMLDivElement).dataset.id === id) })
+  } catch {}
+}
+
 // —— 大纲面板：从预览或源码提取 H1~H6，生成可点击目录 ——
 function renderOutlinePanel() {
   try {
@@ -2908,19 +2942,75 @@ function renderOutlinePanel() {
       })
     }
     if (items.length === 0) { outline.innerHTML = '<div class="empty">未检测到标题</div>'; return }
-    outline.innerHTML = items.map(it => `<div class="ol-item lvl-${it.level}" data-id="${it.id}">${it.text}</div>`).join('')
+
+    // 计算是否有子级（用于折叠/展开，限制到 H1/H2）
+    const hasChild = new Map<string, boolean>()
+    for (let i = 0; i < items.length; i++) {
+      const cur = items[i]
+      if (cur.level > 2) continue
+      let child = false
+      for (let j = i + 1; j < items.length; j++) { if (items[j].level > cur.level) { child = true; break } if (items[j].level <= cur.level) break }
+      hasChild.set(cur.id, child)
+    }
+
+    outline.innerHTML = items.map((it, idx) => {
+      const tg = (it.level <= 2 && hasChild.get(it.id)) ? `<span class=\"ol-tg\" data-idx=\"${idx}\">▾</span>` : `<span class=\"ol-tg\"></span>`
+      return `<div class=\"ol-item lvl-${it.level}\" data-id=\"${it.id}\" data-idx=\"${idx}\">${tg}${it.text}</div>`
+    }).join('')
+
+    // 折叠状态记忆（基于当前文件路径）
+    const key = 'outline-collapsed:' + (currentFilePath || 'untitled')
+    const _raw = (() => { try { return localStorage.getItem(key) } catch { return null } })()
+    const collapsed = new Set<string>(_raw ? (() => { try { return JSON.parse(_raw!) } catch { return [] } })() : [])
+    const saveCollapsed = () => { try { localStorage.setItem(key, JSON.stringify(Array.from(collapsed))) } catch {} }
+
+    // 应用折叠：根据被折叠的 id 隐藏其后代
+    function applyCollapse() {
+      try {
+        const nodes = Array.from(outline.querySelectorAll('.ol-item')) as HTMLDivElement[]
+        // 先全部显示
+        nodes.forEach(n => n.classList.remove('hidden'))
+        // 逐个处理折叠项
+        nodes.forEach((n) => {
+          const id = n.dataset.id || ''
+          if (!id || !collapsed.has(id)) return
+          const m1 = n.className.match(/lvl-(\d)/); const level = parseInt((m1?.[1]||'1'),10)
+          for (let i = (parseInt(n.dataset.idx||'-1',10) + 1); i < nodes.length; i++) {
+            const m = nodes[i]
+            const m2 = m.className.match(/lvl-(\d)/); const lv = parseInt((m2?.[1]||'6'),10)
+            if (lv <= level) break
+            m.classList.add('hidden')
+          }
+        })
+      } catch {}
+    }
+
+    // 折叠/展开切换
+    outline.querySelectorAll('.ol-tg').forEach((tgEl) => {
+      tgEl.addEventListener('click', (ev) => {
+        ev.stopPropagation()
+        const el = (tgEl as HTMLElement).closest('.ol-item') as HTMLDivElement | null
+        if (!el) return
+        const id = el.dataset.id || ''
+        const m1 = el.className.match(/lvl-(\d)/); const level = parseInt((m1?.[1]||'1'),10)
+        if (!id || level > 2) return
+        if (collapsed.has(id)) { collapsed.delete(id); (tgEl as HTMLElement).textContent = '▾' } else { collapsed.add(id); (tgEl as HTMLElement).textContent = '▸' }
+        saveCollapsed(); applyCollapse()
+      })
+    })
+
+    // 点击跳转
     outline.querySelectorAll('.ol-item').forEach((el) => {
       el.addEventListener('click', () => {
         const id = (el as HTMLDivElement).dataset.id || ''
         if (!id) return
-        try {
-          const target = document.getElementById(id)
-          if (target) {
-            target.scrollIntoView({ behavior: 'smooth', block: 'start' })
-          }
-        } catch {}
+        try { const target = document.getElementById(id); if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' }) } catch {}
       })
     })
+
+    applyCollapse()
+    // 初始高亮与绑定滚动同步
+    setTimeout(() => { try { updateOutlineActive(); bindOutlineScrollSync() } catch {} }, 0)
   } catch {}
 }
 
