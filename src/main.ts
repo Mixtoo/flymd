@@ -601,7 +601,8 @@ function onTaskCheckboxChange(ev: Event) {
     ;(editor as HTMLTextAreaElement).value = lines.join('\n')
     try { (window as any).dirty = true } catch {}
     try { refreshTitle(); refreshStatus() } catch {}
-    try { renderPreview() } catch {}\n    try { if (currentFilePath) { void saveFile() } } catch {}
+    try { renderPreview() } catch {}
+    try { if (currentFilePath) { void saveFile() } else { void saveAs() } } catch {}
   } catch {}
 }
 const status = document.getElementById('status') as HTMLDivElement
