@@ -601,7 +601,7 @@ function onTaskCheckboxChange(ev: Event) {
     ;(editor as HTMLTextAreaElement).value = lines.join('\n')
     try { (window as any).dirty = true } catch {}
     try { refreshTitle(); refreshStatus() } catch {}
-    try { renderPreview() } catch {}
+    try { renderPreview() } catch {}\n    try { if (currentFilePath) { void saveFile() } } catch {}
   } catch {}
 }
 const status = document.getElementById('status') as HTMLDivElement
@@ -5861,6 +5861,7 @@ async function loadAndActivateEnabledPlugins(): Promise<void> {
 
 // 将所见模式开关暴露到全局，便于在 WYSIWYG V2 覆盖层中通过双击切换至源码模式
 try { (window as any).flymdSetWysiwygEnabled = async (enable: boolean) => { try { await setWysiwygEnabled(enable) } catch (e) { console.error('flymdSetWysiwygEnabled 调用失败', e) } } } catch {}
+
 
 
 
