@@ -1432,3 +1432,11 @@ textarea:focus {
     scroll-behavior: auto !important;
   }
 }
+/* WYSIWYG：单换行视觉一致性（方案A：UI 层） */
+.container.wysiwyg-v2 .ProseMirror p,
+.container.wysiwyg-v2 .ProseMirror li {
+  white-space: pre-line; /* 将换行符渲染为换行，不改变 Markdown 语义 */
+}
+.container.wysiwyg-v2 .ProseMirror blockquote p {
+  white-space: pre-line;
+}
