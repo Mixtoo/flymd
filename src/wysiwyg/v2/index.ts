@@ -1,7 +1,7 @@
 // 所见模式 V2：基于 Milkdown 的真实所见编辑视图
 // 暴露 enable/disable 与 setMarkdown/getMarkdown 能力，供主流程挂接
 
-import 'katex/dist/katex.min.css'
+ import { history } from '@milkdown/plugin-history'
 import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx, editorViewCtx, commandsCtx } from '@milkdown/core'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { readFile } from '@tauri-apps/plugin-fs'
@@ -200,7 +200,7 @@ export async function enableWysiwygV2(root: HTMLElement, initialMd: string, onCh
     .use(remarkMathPlugin).use(katexOptionsCtx).use(mathInlineSchema).use(mathBlockSchema).use(mathInlineInputRule)
     .use(automd)
     .use(listener)
-    .use(upload)
+    .use(history)
     .create()
 
   try { rewriteLocalImagesToAsset() } catch {}
@@ -293,7 +293,7 @@ export async function enableWysiwygV2(root: HTMLElement, initialMd: string, onCh
 
 export async function disableWysiwygV2() {  try {
     if (_editor) {
-      try { const mdNow = await (_editor as any).action(getMarkdown()) ; _lastMd = mdNow; _onChange?.(mdNow) } catch {}
+      try { const mdNow = await (_editor as any).action(getMarkdown()); _lastMd = mdNow;} catch {}
     }
   } catch {}
   try { if (_imgObserver) { _imgObserver.disconnect(); _imgObserver = null } } catch {}
@@ -676,6 +676,9 @@ export async function wysiwygV2ApplyLink(href: string, title?: string) {
     }
   })
 }
+
+
+
 
 
 

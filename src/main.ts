@@ -814,9 +814,7 @@ async function setWysiwygEnabled(enable: boolean) {
         // 给 root 一个占位提示，避免用户误以为空白
         try { if (root) root.textContent = '正在加载所见编辑器…' } catch {}
         // 调用 enableWysiwygV2 来创建/更新编辑器（会自动处理清理和重建）
-        await enableWysiwygV2(root!, editor.value, (mdNext) => {
-          try { editor.value = mdNext; dirty = true; refreshTitle(); refreshStatus() } catch {}
-        })
+        await enableWysiwygV2(root!, editor.value, (mdNext) => { try { if (mdNext !== editor.value) { editor.value = mdNext; dirty = true; refreshTitle(); refreshStatus() } } catch {} })
         wysiwygV2Active = true
         if (container) { container.classList.remove('wysiwyg-v2-loading'); container.classList.add('wysiwyg-v2'); }
         try { if (root) (root as HTMLElement).style.display = 'block' } catch {}
@@ -873,9 +871,7 @@ async function setWysiwygEnabled(enable: boolean) {
         // 右下角提示已取消，无需移除
       }
       try { applyLibraryLayout() } catch {}
-      if (mode !== 'preview') {
-        try { preview.classList.add('hidden') } catch {}
-      }
+      if (mode !== 'preview') { try { preview.classList.add('hidden') } catch {} } else { try { preview.classList.remove('hidden') } catch {} }
       try { if (container) container.classList.remove('no-caret') } catch {}
       try { if (wysiwygStatusEl) wysiwygStatusEl.classList.remove('show') } catch {}
       // 退出所见后确保编辑器可编辑并聚焦
@@ -2999,7 +2995,7 @@ async function switchToPreviewAfterOpen() {
     try {
       const root = document.getElementById('md-wysiwyg-root') as HTMLDivElement | null
       if (root) {
-        await enableWysiwygV2(root, editor.value, (mdNext) => { try { editor.value = mdNext; dirty = true; refreshTitle(); refreshStatus() } catch {} })
+        await enableWysiwygV2(root, editor.value, (mdNext) => { try { if (mdNext !== editor.value) { editor.value = mdNext; dirty = true; refreshTitle(); refreshStatus() } } catch {} })
       }
     } catch {}
     try { preview.classList.add('hidden') } catch {}
@@ -4106,13 +4102,10 @@ function showModeMenu() {
       try { if (wysiwyg) await setWysiwygEnabled(false) } catch {}
       if (mode !== 'edit') { mode = 'edit'; try { preview.classList.add('hidden') } catch {}; try { editor.focus() } catch {}; try { syncToggleButton() } catch {} }
     } },
-    { label: t('mode.read'), accel: 'Ctrl+R', action: async () => {
-      // 先切到预览再退出所见，避免退出所见时根据旧 mode 隐藏预览
-      if (mode !== 'preview') {
-        mode = 'preview'
-        try { preview.classList.remove('hidden') } catch {}
-        try { await renderPreview() } catch {}
-      }
+       { label: t('mode.read'), accel: 'Ctrl+R', action: async () => {
+      mode = 'preview'
+      try { preview.classList.remove('hidden') } catch {}
+      try { await renderPreview() } catch {}
       try { if (wysiwyg) await setWysiwygEnabled(false) } catch {}
       try { syncToggleButton() } catch {}
     } },
@@ -4280,7 +4273,68 @@ function bindEvents() {
   if (btnSave) btnSave.addEventListener('click', guard(() => saveFile()))
   if (btnSaveas) btnSaveas.addEventListener('click', guard(() => saveAs()))
   if (btnToggle) btnToggle.addEventListener('click', guard(() => toggleMode()))
-  if (btnWysiwyg) btnWysiwyg.addEventListener('click', guard(() => toggleWysiwyg()))
+  if (btnWysiwyg) btnWysiwyg.addEventListener('click', guard(() => toggleWysiwyg()))  // 编辑模式：Tab/Shift+Tab 段落缩进/反缩进
+  try {
+    (editor as HTMLTextAreaElement).addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || e.ctrlKey || e.metaKey) return
+      e.preventDefault()
+      try {
+        const ta = editor as HTMLTextAreaElement
+        const val = String(ta.value || '')
+        const start = ta.selectionStart >>> 0
+        const end = ta.selectionEnd >>> 0
+        const isShift = !!e.shiftKey
+        const indent = '  ' // 2 空格
+        // 选区起始行与结束行的起始偏移
+        const lineStart = val.lastIndexOf('\n', start - 1) + 1
+        const lineEndBoundary = val.lastIndexOf('\n', Math.max(end - 1, 0)) + 1
+        const sel = val.slice(lineStart, end)
+        if (start !== end && sel.includes('\n')) {
+          // 多行：逐行缩进或反缩进
+          const lines = val.slice(lineStart, end).split('\n')
+          const changed = lines.map((ln) => {
+            if (isShift) {
+              if (ln.startsWith(indent)) return ln.slice(indent.length)
+              if (ln.startsWith(' \t')) return ln.slice(1) // 宽松回退
+              if (ln.startsWith('\t')) return ln.slice(1)
+              return ln
+            } else {
+              return indent + ln
+            }
+          }).join('\n')
+          const newVal = val.slice(0, lineStart) + changed + val.slice(end)
+          const delta = changed.length - (end - lineStart)
+          ta.value = newVal
+          // 调整新选区：覆盖处理的整段
+          ta.selectionStart = lineStart
+          ta.selectionEnd = end + delta
+        } else {
+          // 单行：在光标处插入/删除缩进
+          const curLineStart = lineStart
+          if (isShift) {
+            const cur = val.slice(curLineStart)
+            if (cur.startsWith(indent, start - curLineStart)) {
+              const newVal = val.slice(0, start - indent.length) + val.slice(start)
+              ta.value = newVal
+              ta.selectionStart = ta.selectionEnd = start - indent.length
+            } else if ((start - curLineStart) > 0 && val.slice(curLineStart, curLineStart + 1) === '\t') {
+              const newVal = val.slice(0, curLineStart) + val.slice(curLineStart + 1)
+              ta.value = newVal
+              const shift = (start > curLineStart) ? 1 : 0
+              ta.selectionStart = ta.selectionEnd = start - shift
+            }
+          } else {
+            const newVal = val.slice(0, start) + indent + val.slice(end)
+            ta.value = newVal
+            ta.selectionStart = ta.selectionEnd = start + indent.length
+          }
+        }
+        dirty = true
+        try { refreshTitle(); refreshStatus() } catch {}
+        if (mode === 'preview') { try { void renderPreview() } catch {} } else if (wysiwyg) { try { scheduleWysiwygRender() } catch {} }
+      } catch {}
+    })
+  } catch {}
   if (btnUpdate) btnUpdate.addEventListener('click', guard(() => checkUpdateInteractive()))
   // 代码复制按钮（事件委托）
   // 库侧栏右键菜单
@@ -5862,6 +5916,12 @@ async function loadAndActivateEnabledPlugins(): Promise<void> {
 
 // 将所见模式开关暴露到全局，便于在 WYSIWYG V2 覆盖层中通过双击切换至源码模式
 try { (window as any).flymdSetWysiwygEnabled = async (enable: boolean) => { try { await setWysiwygEnabled(enable) } catch (e) { console.error('flymdSetWysiwygEnabled 调用失败', e) } } } catch {}
+
+
+
+
+
+
 
 
 
