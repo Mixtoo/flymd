@@ -13,6 +13,7 @@ import { automd } from '@milkdown/plugin-automd'
 import { listener, listenerCtx } from '@milkdown/plugin-listener'
 import { upload, uploadConfig } from '@milkdown/plugin-upload'
 import { uploader } from './plugins/paste'
+import { mermaidPlugin } from './plugins/mermaid'
 import { remarkMathPlugin, katexOptionsCtx, mathInlineSchema, mathBlockSchema, mathInlineInputRule } from '@milkdown/plugin-math'
 // 注：保留 automd 插件以提供编辑功能，通过 CSS 隐藏其 UI 组件
 // 引入富文本所见视图的必要样式（避免工具条/布局错乱导致不可编辑/不可滚动）
@@ -27,12 +28,12 @@ let _imgObserver: MutationObserver | null = null
 let _overlayTimer: number | null = null
 let _overlayHost: HTMLDivElement | null = null
 let _activeMermaidPre: HTMLElement | null = null
-// 记录上一次激活的 mermaid 源代码块，避免切换时残留/闪烁
-let _lastMermaidPre: HTMLElement | null = null
-// 鼠标与光标分别记录，避免事件互相“顶掉”导致不渲染
+// 鼠标与光标分别记录，避免事件互相"顶掉"导致不渲染
 // 优先级：光标所在（selection）优先于鼠标悬停（mouse）
 let _activeMermaidPreBySelection: HTMLElement | null = null
 let _activeMermaidPreByMouse: HTMLElement | null = null
+// MutationObserver 用于监听 ProseMirror 清除我们插入的元素
+let _mermaidObserver: MutationObserver | null = null
 
 function toLocalAbsFromSrc(src: string): string | null {
   try {
@@ -198,6 +199,7 @@ export async function enableWysiwygV2(root: HTMLElement, initialMd: string, onCh
     .use(commonmark)
     .use(gfm)
     .use(remarkMathPlugin).use(katexOptionsCtx).use(mathInlineSchema).use(mathBlockSchema).use(mathInlineInputRule)
+    .use(mermaidPlugin)
     .use(automd)
     .use(listener)
     .use(history)
@@ -213,9 +215,9 @@ export async function enableWysiwygV2(root: HTMLElement, initialMd: string, onCh
   } catch {}
   // 初次渲染后重写本地图片为 asset: url（仅影响 DOM，不改 Markdown）
   try { setTimeout(() => { try { rewriteLocalImagesToAsset() } catch {} }, 0) } catch {}
-  // 首次挂载后运行一次增强渲染（Mermaid 块）
-  try { setTimeout(() => { try { scheduleMermaidRender() } catch {} }, 60) } catch {}
-  try { window.addEventListener('resize', () => { try { scheduleMermaidRender() } catch {} }) } catch {}
+  // 首次挂载后运行一次增强渲染（Mermaid 块）- 已由 Milkdown 插件自动处理
+  // try { setTimeout(() => { try { scheduleMermaidRender() } catch {} }, 60) } catch {}
+  // try { window.addEventListener('resize', () => { try { scheduleMermaidRender() } catch {} }) } catch {}
   // 成功创建后清理占位文案（仅移除纯文本节点，不影响编辑器 DOM）
   try {
     if (_root && _root.firstChild && (_root.firstChild as any).nodeType === 3) {
@@ -229,11 +231,11 @@ export async function enableWysiwygV2(root: HTMLElement, initialMd: string, onCh
       pm.style.display = 'block'
       pm.style.minHeight = '100%'
       pm.style.width = '100%'
-      // 滚动时刷新覆盖渲染（重定位 Mermaid 预览块）
-      try { pm.addEventListener('scroll', () => { try { scheduleMermaidRender() } catch {} }) } catch {}
-      // 鼠标/光标触发 Mermaid 渲染（非实时）
-      try { pm.addEventListener('mousemove', (ev) => { try { onPmMouseMove(ev as any) } catch {} }, true) } catch {}
-      try { document.addEventListener('selectionchange', () => { try { onPmSelectionChange() } catch {} }, true) } catch {} 
+      // 滚动时刷新覆盖渲染（重定位 Mermaid 预览块）- 已由 Milkdown 插件处理
+      // try { pm.addEventListener('scroll', () => { try { scheduleMermaidRender() } catch {} }) } catch {}
+      // 鼠标/光标触发 Mermaid 渲染（非实时）- 注释掉按需渲染，改用全局渲染
+      // try { pm.addEventListener('mousemove', (ev) => { try { onPmMouseMove(ev as any) } catch {} }, true) } catch {}
+      // try { document.addEventListener('selectionchange', () => { try { onPmSelectionChange() } catch {} }, true) } catch {} 
       // 双击 KaTeX / Mermaid 进入源码模式
       try { pm.addEventListener('dblclick', (ev) => {
   const t = ev.target as HTMLElement | null;
@@ -255,7 +257,7 @@ export async function enableWysiwygV2(root: HTMLElement, initialMd: string, onCh
     try {
       lm.docChanged((_ctx) => {
         if (_suppressInitialUpdate) return
-        scheduleMermaidRender()
+        // scheduleMermaidRender() // 已由 Milkdown 插件处理
         try { scheduleMathBlockReparse() } catch {}
       })
     } catch {}
@@ -283,8 +285,8 @@ export async function enableWysiwygV2(root: HTMLElement, initialMd: string, onCh
       _lastMd = md2
       try { _onChange?.(md2) } catch {}
       try { setTimeout(() => { try { rewriteLocalImagesToAsset() } catch {} }, 0) } catch {}
-      // Markdown 更新时，也刷新 Mermaid 渲染
-      scheduleMermaidRender()
+      // Markdown 更新时，也刷新 Mermaid 渲染 - 已由 Milkdown 插件处理
+      // scheduleMermaidRender()
     })
   } catch {}
   _suppressInitialUpdate = false
@@ -330,6 +332,7 @@ let _renderThrottleTimer: number | null = null
 const _renderedMermaid = new WeakMap<HTMLElement, string>()
 
 function scheduleMermaidRender() {
+  console.log('[DEBUG] scheduleMermaidRender 被调用')
   try { if (_renderThrottleTimer != null) { clearTimeout(_renderThrottleTimer); _renderThrottleTimer = null } } catch {}
   // 使用节流：300ms 内多次调用只执行一次
   _renderThrottleTimer = window.setTimeout(() => { try { renderMermaidNow() } catch {} }, 300)
@@ -555,152 +558,122 @@ function enterLatexSourceEdit(hitEl: HTMLElement) {
   } catch {}
 }
 function renderMermaidNow() {
+  console.log('[DEBUG] renderMermaidNow 被调用')
   const host = getHost()
   const ov = ensureOverlayHost()
+  console.log('[DEBUG] host:', host, 'ov:', ov)
   if (!host || !ov) return
 
-  // 如果激活的 mermaid 源码块发生变化，则移除旧的覆盖层，避免残留
-  try {
-    if (_activeMermaidPre !== _lastMermaidPre) {
-      const all = ov.querySelectorAll('.ov-mermaid')
-      all.forEach(el => { try { (el as HTMLElement).parentElement?.removeChild(el) } catch {} })
-      _lastMermaidPre = _activeMermaidPre
-    }
-  } catch {}
-
-  // 还原此前被隐藏的源码元素
-  try {
-    const hiddenElements = host.querySelectorAll('[data-wysiwyg-hidden="true"]')
-    hiddenElements.forEach((el) => {
-      try {
-        (el as HTMLElement).style.color = ''
-        (el as HTMLElement).style.userSelect = ''
-        (el as HTMLElement).style.minHeight = ''
-        el.removeAttribute('data-wysiwyg-hidden')
-      } catch {}
-    })
-  } catch {}
-
-  // 清空之前的覆盖层
-// (disabled) 不再强制清空覆盖层，避免闪烁
   const hostRc = (_root as HTMLElement).getBoundingClientRect()
 
-  // Mermaid 覆盖渲染
+  // 方案：使用覆盖层 + 给 pre 设置 min-height
   try {
-    const pres: HTMLElement[] = _activeMermaidPre ? [_activeMermaidPre] : []
+    const allPres = Array.from(host.querySelectorAll('pre')) as HTMLElement[]
+    console.log('[DEBUG] 找到的所有 pre 元素数量:', allPres.length)
+
+    const pres: HTMLElement[] = allPres.filter(pre => {
+      const langFromAttr = (pre.getAttribute('data-language') || '').toLowerCase()
+      return langFromAttr === 'mermaid'
+    })
+
+    console.log('[DEBUG] 过滤后的 mermaid 代码块数量:', pres.length)
+
     for (const pre of pres) {
       try {
         const codeEl = pre.querySelector('code') as HTMLElement | null
-        const langFromClass = codeEl ? /\blanguage-([\w-]+)\b/.exec(codeEl.className || '')?.[1] : ''
-        const langFromAttr = (pre.getAttribute('data-language') || pre.getAttribute('data-lang') || '').toLowerCase()
-        const lang = (langFromAttr || langFromClass || '').toLowerCase()
+        if (!codeEl) continue
 
-        if (lang === 'mermaid') {
-          const code = (codeEl?.textContent || '').trim()
-          const cached = _renderedMermaid.get(pre)
-          if (cached === code) {
-            try {
-              const rc = pre.getBoundingClientRect()
-              const exist = ov.querySelector('.ov-mermaid') as HTMLDivElement | null
-              if (exist) {
-                exist.style.left = Math.max(0, rc.left - hostRc.left) + 'px'
-                exist.style.top = Math.max(0, rc.bottom - hostRc.top + 6) + 'px'
-                exist.style.width = Math.max(10, rc.width) + 'px'
-              } else {
-                const wrap = document.createElement('div')
-                wrap.className = 'ov-mermaid'
-                wrap.style.position = 'absolute'
-                wrap.style.left = Math.max(0, rc.left - hostRc.left) + 'px'
-                wrap.style.top = Math.max(0, rc.bottom - hostRc.top + 6) + 'px'
-                wrap.style.width = Math.max(10, rc.width) + 'px'
-                wrap.style.pointerEvents = 'none'
-                wrap.style.cursor = 'text'
-                wrap.style.zIndex = '10'
-                const inner = document.createElement('div')
-                inner.style.pointerEvents = 'none'
-                inner.style.background = 'var(--wysiwyg-bg)'
-                inner.style.borderRadius = '4px'
-                inner.style.padding = '8px'
-                inner.style.opacity = '1'
-                inner.style.minHeight = '20px'
-                inner.style.boxSizing = 'border-box'
-                wrap.appendChild(inner)
-                ov.appendChild(wrap)
-                void (async () => { try { await renderMermaidInto(inner, code) } catch {} })()
-              }
-            } catch {}
-            continue
-          }
+        const code = (codeEl.textContent || '').trim()
+        if (!code) continue
 
-          _renderedMermaid.set(pre, code)
-          const rc = pre.getBoundingClientRect()
-
-          // 生成 Mermaid 覆盖层
-          const wrap = document.createElement('div')
-          wrap.className = 'ov-mermaid'
-          wrap.style.position = 'absolute'
-          wrap.style.left = Math.max(0, rc.left - hostRc.left) + 'px'
-          wrap.style.top = Math.max(0, rc.bottom - hostRc.top + 6) + 'px'
-          wrap.style.width = Math.max(10, rc.width) + 'px'
-          wrap.style.pointerEvents = 'none'
-          wrap.style.cursor = 'text'
-          wrap.style.zIndex = '10'
-
-          const inner = document.createElement('div')
-          inner.style.pointerEvents = 'none'
-          inner.style.background = 'var(--wysiwyg-bg)'
-          inner.style.borderRadius = '4px'
-          inner.style.padding = '8px'
-          inner.style.opacity = '0'
-          inner.style.transition = 'opacity 0.15s ease-in'
-          inner.style.minHeight = '20px'
-          inner.style.boxSizing = 'border-box'
-
-          // 双击进入局部源码编辑（不切换整页）
-          wrap.addEventListener('dblclick', (e) => {
-            e.stopPropagation()
-            try { wrap.style.display = 'none' } catch {}
-            try { pre.scrollIntoView({ block: 'center', behavior: 'smooth' }) } catch {}
-            try {
-              const range = document.createRange()
-              const sel = window.getSelection()
-              range.selectNodeContents(pre)
-              sel?.removeAllRanges()
-              sel?.addRange(range)
-              if (codeEl) (codeEl as any).focus?.()
-            } catch {}
-          })
-
-          wrap.appendChild(inner)
-          ov.appendChild(wrap)
-
-          // 隐藏源码
-// keep source visible: pre.style.color untouched
-// keep source selectable
-// keep source attributes unchanged
-
-          // 渲染 Mermaid 并立即调整占位高度，避免遮挡后文
-          void (async () => {
-            await renderMermaidInto(inner, code)
-            try {
-              const renderedHeight = inner.getBoundingClientRect().height
-              const sourceHeight = pre.getBoundingClientRect().height
-// keep source minHeight unchanged
-            } catch {}
-            requestAnimationFrame(() => { try { inner.style.opacity = '1' } catch {} })
-          })()
+        // 为每个 pre 元素分配唯一 ID
+        if (!pre.dataset.mermaidId) {
+          pre.dataset.mermaidId = 'mmd-' + Math.random().toString(36).slice(2)
         }
-      } catch {}
+        const mermaidId = pre.dataset.mermaidId
+
+        // 检查是否已经渲染过
+        const cached = _renderedMermaid.get(pre)
+        if (cached === code) {
+          console.log('[DEBUG] 代码未变化，跳过渲染')
+          // 更新覆盖层位置
+          const exist = ov.querySelector(`.ov-mermaid[data-mermaid-id="${mermaidId}"]`) as HTMLDivElement | null
+          if (exist) {
+            const rc = pre.getBoundingClientRect()
+            const codeRc = codeEl.getBoundingClientRect()
+            exist.style.left = Math.max(0, rc.left - hostRc.left) + 'px'
+            exist.style.top = Math.max(0, codeRc.bottom - hostRc.top + 8) + 'px'
+            exist.style.width = Math.max(10, rc.width) + 'px'
+          }
+          continue
+        }
+
+        _renderedMermaid.set(pre, code)
+        console.log('[DEBUG] 开始渲染 mermaid，id:', mermaidId)
+
+        const rc = pre.getBoundingClientRect()
+        const codeRc = codeEl.getBoundingClientRect()
+
+        // 创建覆盖层
+        const wrap = document.createElement('div')
+        wrap.className = 'ov-mermaid'
+        wrap.dataset.mermaidId = mermaidId
+        wrap.style.position = 'absolute'
+        wrap.style.left = Math.max(0, rc.left - hostRc.left) + 'px'
+        wrap.style.top = Math.max(0, codeRc.bottom - hostRc.top + 8) + 'px'
+        wrap.style.width = Math.max(10, rc.width) + 'px'
+        wrap.style.pointerEvents = 'auto'
+        wrap.style.zIndex = '10'
+
+        const inner = document.createElement('div')
+        inner.style.background = 'var(--wysiwyg-bg)'
+        inner.style.borderRadius = '4px'
+        inner.style.padding = '8px'
+        inner.style.opacity = '0'
+        inner.style.transition = 'opacity 0.15s ease-in'
+        inner.style.boxSizing = 'border-box'
+
+        wrap.appendChild(inner)
+        ov.appendChild(wrap)
+
+        // 双击切换回源代码
+        wrap.addEventListener('dblclick', (e) => {
+          e.stopPropagation()
+          wrap.style.display = 'none'
+          pre.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        })
+
+        // 渲染图表
+        void (async () => {
+          try {
+            await renderMermaidInto(inner, code)
+            const renderedHeight = inner.getBoundingClientRect().height
+
+            // 关键：设置 pre 的 min-height，使用 !important 防止被覆盖
+            pre.style.setProperty('min-height', (renderedHeight + 32) + 'px', 'important')
+            console.log('[DEBUG] 设置 pre min-height:', renderedHeight + 32, 'px')
+
+            requestAnimationFrame(() => { inner.style.opacity = '1' })
+          } catch (e) {
+            console.error('[DEBUG] 渲染失败:', e)
+          }
+        })()
+
+      } catch (e) {
+        console.error('[DEBUG] 处理 pre 失败:', e)
+      }
     }
-  } catch {}
-
-
-
-
-
-
-
+  } catch (e) {
+    console.error('[DEBUG] renderMermaidNow 失败:', e)
+  }
 }
+
+
+
+
+
+
+
 // =============== 所见模式内编辑快捷：加粗 / 斜体 / 链接 ===============
 export async function wysiwygV2ToggleBold() {
   if (!_editor) return
