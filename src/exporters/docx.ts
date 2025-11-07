@@ -55,82 +55,87 @@ async function readLocalAsDataUrl(absPath: string): Promise<string> {
 
 // 通过 Tauri HTTP 客户端抓取远程图片（避免 CORS），必要时转为 PNG
 async function fetchRemoteAsDataUrl(url: string): Promise<string> {
+  // 1) 优先使用 Tauri v2 http 插件（不受浏览器 CORS 限制）
   try {
-    const http = await import('@tauri-apps/plugin-http')
-    const client = await http.getClient()
-    const resp = await client.get(url, {
-      responseType: 2, // Binary
-      headers: { 'Accept': 'image/*;q=0.9,*/*;q=0.1' },
-    })
-    const bytes = new Uint8Array(resp.data as ArrayBuffer)
-    // 解析 mime
-    let mime = 'application/octet-stream'
-    try { const ct = String((resp as any).headers?.['content-type'] || (resp as any).headers?.['Content-Type'] || ''); if (ct) mime = ct.split(';')[0].trim() } catch {}
-    if (!/^image\//i.test(mime)) {
-      const m = (url || '').toLowerCase().match(/\.([a-z0-9]+)(?:\?|#|$)/)
-      switch (m?.[1]) {
-        case 'jpg':
-        case 'jpeg': mime = 'image/jpeg'; break
-        case 'png': mime = 'image/png'; break
-        case 'gif': mime = 'image/gif'; break
-        case 'webp': mime = 'image/webp'; break
-        case 'bmp': mime = 'image/bmp'; break
-        case 'avif': mime = 'image/avif'; break
-        case 'svg': mime = 'image/svg+xml'; break
-        case 'ico': mime = 'image/x-icon'; break
+    const mod: any = await import('@tauri-apps/plugin-http')
+    if (mod?.fetch) {
+      const resp = await mod.fetch(url, {
+        method: 'GET',
+        headers: { 'Accept': 'image/*;q=0.9,*/*;q=0.1' },
+      })
+      const ab: ArrayBuffer = await resp.arrayBuffer()
+      let mime = 'application/octet-stream'
+      try {
+        const ct = resp.headers?.get?.('content-type') || resp.headers?.get?.('Content-Type')
+        if (ct) mime = String(ct).split(';')[0].trim()
+      } catch {}
+      if (!/^image\//i.test(mime)) {
+        const m = (url || '').toLowerCase().match(/\.([a-z0-9]+)(?:\?|#|$)/)
+        switch (m?.[1]) {
+          case 'jpg':
+          case 'jpeg': mime = 'image/jpeg'; break
+          case 'png': mime = 'image/png'; break
+          case 'gif': mime = 'image/gif'; break
+          case 'webp': mime = 'image/webp'; break
+          case 'bmp': mime = 'image/bmp'; break
+          case 'avif': mime = 'image/avif'; break
+          case 'svg': mime = 'image/svg+xml'; break
+          case 'ico': mime = 'image/x-icon'; break
+        }
       }
-    }
-    let blob = new Blob([bytes], { type: mime })
-    // 将不被 Word 广泛支持的格式转为 PNG（webp/avif/svg）
-    if (/^(image\/webp|image\/avif|image\/svg\+xml)$/i.test(mime)) {
-      try {
-        const url2 = URL.createObjectURL(blob)
+      let blob = new Blob([ab], { type: mime })
+      // Word 兼容性：将 webp/avif/svg 转为 PNG
+      if (/^(image\/webp|image\/avif|image\/svg\+xml)$/i.test(mime)) {
         try {
-          const pngUrl: string = await new Promise((resolve, reject) => {
-            const img = new Image()
-            img.onload = () => {
-              try {
-                const canvas = document.createElement('canvas')
-                canvas.width = img.naturalWidth || img.width || 1
-                canvas.height = img.naturalHeight || img.height || 1
-                const ctx = canvas.getContext('2d')!
-                ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height)
-                ctx.drawImage(img, 0, 0)
-                resolve(canvas.toDataURL('image/png'))
-              } catch (e) { reject(e) }
-            }
-            img.onerror = () => reject(new Error('图片解码失败'))
-            img.src = url2
-          })
-          return pngUrl
-        } finally { URL.revokeObjectURL(url2) }
-      } catch (e) { console.warn('格式转 PNG 失败，继续原格式', e) }
-    }
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      try {
-        const fr = new FileReader()
-        fr.onerror = () => reject(fr.error || new Error('读取失败'))
-        fr.onload = () => resolve(String(fr.result || ''))
-        fr.readAsDataURL(blob)
-      } catch (e) { reject(e as any) }
-    })
-    return dataUrl
-  } catch (e) {
-    console.warn('fetchRemoteAsDataUrl 失败，回退 window.fetch', e)
-    try {
-      const r = await fetch(url, { mode: 'cors' })
-      const blob = await r.blob()
+          const url2 = URL.createObjectURL(blob)
+          try {
+            const pngUrl: string = await new Promise((resolve, reject) => {
+              const img = new Image()
+              img.onload = () => {
+                try {
+                  const canvas = document.createElement('canvas')
+                  canvas.width = img.naturalWidth || img.width || 1
+                  canvas.height = img.naturalHeight || img.height || 1
+                  const ctx = canvas.getContext('2d')!
+                  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height)
+                  ctx.drawImage(img, 0, 0)
+                  resolve(canvas.toDataURL('image/png'))
+                } catch (e) { reject(e) }
+              }
+              img.onerror = () => reject(new Error('图片加载失败'))
+              img.src = url2
+            })
+            return pngUrl
+          } finally { URL.revokeObjectURL(url2) }
+        } catch (e) { console.warn('转 PNG 失败，使用原格式', e) }
+      }
       const dataUrl = await new Promise<string>((resolve, reject) => {
-        const fr = new FileReader()
-        fr.onerror = () => reject(fr.error || new Error('读取失败'))
-        fr.onload = () => resolve(String(fr.result || ''))
-        fr.readAsDataURL(blob)
+        try {
+          const fr = new FileReader()
+          fr.onerror = () => reject(fr.error || new Error('读取失败'))
+          fr.onload = () => resolve(String(fr.result || ''))
+          fr.readAsDataURL(blob)
+        } catch (e) { reject(e as any) }
       })
       return dataUrl
-    } catch (e2) {
-      console.error('window.fetch 回退也失败', e2)
-      return ''
     }
+  } catch (e) {
+    console.warn('plugin-http 不可用，回退 window.fetch', e)
+  }
+  // 2) 回退：window.fetch（需要后端允许 CORS）
+  try {
+    const r = await fetch(url, { mode: 'cors' })
+    const blob = await r.blob()
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader()
+      fr.onerror = () => reject(fr.error || new Error('读取失败'))
+      fr.onload = () => resolve(String(fr.result || ''))
+      fr.readAsDataURL(blob)
+    })
+    return dataUrl
+  } catch (e2) {
+    console.error('window.fetch 回退也失败', e2)
+    return ''
   }
 }
 
@@ -281,3 +286,4 @@ export async function exportDocx(htmlOrEl: string | HTMLElement, opt?: any): Pro
   const ab = await blob.arrayBuffer()
   return new Uint8Array(ab)
 }
+
