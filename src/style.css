@@ -1110,6 +1110,20 @@ html, body { overflow: hidden; }
 #ft-modal { font-size: 13px; }
 #ft-modal .ft-box button { cursor: pointer; }
 
+/* 兜底拖拽：跟随鼠标的小浮层（图标+文件名） */
+.ft-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(17, 17, 17, 0.85);
+  color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+  pointer-events: none;
+  user-select: none;
+}
+
 /* 所见模式：覆盖预览背景为专用色 */
 .container.wysiwyg .preview { background: var(--wysiwyg-bg); }
 

@@ -365,15 +365,31 @@ async function buildDir(root: string, dir: string, parent: HTMLElement) {
           if (!moved && Math.hypot(dx, dy) > 6) {
             moved = true
             ghost = document.createElement('div')
-            ghost.textContent = e.name
+            ghost.className = 'ft-ghost'
+            // 图标
+            const gico = document.createElement('img')
+            try { gico.setAttribute('src', appIconUrl) } catch {}
+            gico.style.width = '16px'
+            gico.style.height = '16px'
+            gico.style.borderRadius = '3px'
+            gico.style.objectFit = 'cover'
+            gico.style.marginRight = '6px'
+            // 文本
+            const glab = document.createElement('span')
+            glab.textContent = e.name
+            glab.style.fontSize = '12px'
+            // 组合
+            ghost.appendChild(gico)
+            ghost.appendChild(glab)
+            // 位置与通用样式（兜底）
             ghost.style.position = 'fixed'
             ghost.style.left = ev.clientX + 8 + 'px'
             ghost.style.top = ev.clientY + 8 + 'px'
-            ghost.style.padding = '4px 8px'
-            ghost.style.background = 'rgba(0,0,0,0.65)'
+            ghost.style.padding = '6px 10px'
+            ghost.style.background = 'rgba(17,17,17,0.85)'
             ghost.style.color = '#fff'
-            ghost.style.fontSize = '12px'
-            ghost.style.borderRadius = '6px'
+            ghost.style.borderRadius = '8px'
+            ghost.style.boxShadow = '0 4px 12px rgba(0,0,0,0.35)'
             ghost.style.pointerEvents = 'none'
             ghost.style.zIndex = '99999'
             document.body.appendChild(ghost)
