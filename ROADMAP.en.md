@@ -6,6 +6,7 @@
 - Added: Custom font support (Theme panel). Supports picking system fonts and installing user fonts for use in the app.
 - Added: Zoom in/out via Ctrl/Cmd + mouse wheel in Edit, Reading and WYSIWYG modes.
 - Fixed: Repeated clicks in Library mode no longer create duplicate menus.
+- Fixed: macOS - Documents failed to load after application launch.
 - Improved: Unified centered layout between Edit and Reading/WYSIWYG modes.
 
 ## Update v0.2.2
