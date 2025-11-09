@@ -160,7 +160,7 @@ html, body {
 .editor {
   width: 100%; height: 100%;
   border: none; outline: none; resize: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
   font-size: 14px; line-height: 1.6; color: var(--fg);
   background: var(--bg);
   padding: 14px 16px 40px 16px;
@@ -186,7 +186,7 @@ html, body {
   padding: 16px 20px 40px 20px;
   background: var(--bg); color: var(--fg);
   /* 改进预览区域的字体和可读性 */
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-family: var(--font-body, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji");
   font-size: 16px;
   line-height: 1.75;
   letter-spacing: 0.01em;
@@ -324,7 +324,7 @@ body > .block-menu { display: none !important; }
   margin: 0 auto;
   background: transparent;
   box-sizing: border-box;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  font-family: var(--font-body, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif);
   font-size: 16px;
   line-height: 1.75;
   letter-spacing: 0.01em;
@@ -373,12 +373,12 @@ body > .block-menu { display: none !important; }
   border-radius: 12px;
   overflow: auto;
   border: none;
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family: var(--font-mono, "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
   margin: 16px 0;
 }
 .container.wysiwyg-v2 .ProseMirror code {
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family: var(--font-mono, "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
   background: var(--code-bg);
   padding: 2px 8px;
   border-radius: 6px;
@@ -412,7 +412,7 @@ body > .block-menu { display: none !important; }
   /* 与编辑器对齐（避免文字看起来在光标“下面”） */
   padding: 14px 16px 40px 16px; /* 与 .editor 一致 */
   /* 使用与编辑器完全一致的等宽字体，保证 ch 宽度一致 */
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
   font-size: 14px; /* 与 .editor 一致 */
   /* 微调变量（如需细调可在运行时动态注入样式覆盖） */
   --w-nudge-x: 0.5ch;   /* 标题横向整体微调，默认约半个西文字符 */
@@ -425,7 +425,7 @@ body > .block-menu { display: none !important; }
   color: transparent;          /* 隐藏文本 */
   caret-color: var(--fg);      /* 仍显示光标 */
   /* 使用与常规编辑相同的等宽字体，确保字符宽度匹配 */
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
   line-height: 1.6;            /* 与预览一致 */
 }
 
@@ -462,7 +462,7 @@ body > .block-menu { display: none !important; }
   z-index: 3;
   pointer-events: none;
   /* 采用"终端式"下划线光标：宽度等于 1 个字符宽，厚度稍微增加 */
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
   width: 1ch;
   height: 3px;
   border-radius: 2px;
@@ -924,10 +924,20 @@ body > .block-menu { display: none !important; }
 .theme-md .md-btn { border: 1px solid var(--border); background: transparent; color: var(--fg); border-radius: 6px; padding: 4px 8px; font-size: 12px; cursor: pointer; }
 .theme-md .md-btn.active { background: rgba(127,127,127,0.12); }
 
+/* 主题面板：字体选择区域 */
+.theme-fonts { display: grid; grid-template-columns: 72px 1fr; column-gap: 8px; row-gap: 8px; align-items: center; }
+.theme-fonts label { font-size: 12px; color: var(--muted); }
+.theme-fonts select { border: 1px solid var(--border); background: transparent; color: var(--fg); border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+.theme-fonts .font-install,
+.theme-fonts .font-reset { justify-self: start; border: 1px solid var(--border); background: transparent; color: var(--fg); border-radius: 6px; padding: 4px 8px; font-size: 12px; cursor: pointer; }
+.theme-fonts .font-actions { grid-column: 2; display: flex; gap: 8px; }
+.theme-fonts .font-install:hover,
+.theme-fonts .font-reset:hover { background: rgba(127,127,127,0.12); }
+
 /* 主题排版：经典衬线 */
 .container.typo-serif .preview-body,
 .container.typo-serif.wysiwyg-v2 .ProseMirror {
-  font-family: Georgia, 'Times New Roman', Times, 'Source Han Serif SC', serif;
+  font-family: var(--font-body, Georgia, 'Times New Roman', Times, 'Source Han Serif SC', serif);
   font-size: 17px;
   line-height: 1.85;
   letter-spacing: 0.005em;
@@ -941,7 +951,7 @@ body > .block-menu { display: none !important; }
 /* 主题排版：现代紧凑 */
 .container.typo-modern .preview-body,
 .container.typo-modern.wysiwyg-v2 .ProseMirror {
-  font-family: Inter, Roboto, 'Noto Sans', system-ui, -apple-system, Segoe UI, Arial, sans-serif;
+  font-family: var(--font-body, Inter, Roboto, 'Noto Sans', system-ui, -apple-system, Segoe UI, Arial, sans-serif);
   font-size: 15.5px;
   line-height: 1.7;
 }
@@ -964,7 +974,7 @@ body > .block-menu { display: none !important; }
 /* 主题排版：学术风（衬线 + 适度行距 + 较明显标题层级） */
 .container.typo-academic .preview-body,
 .container.typo-academic.wysiwyg-v2 .ProseMirror {
-  font-family: Cambria, Georgia, 'Times New Roman', Times, 'Source Han Serif SC', serif;
+  font-family: var(--font-body, Cambria, Georgia, 'Times New Roman', Times, 'Source Han Serif SC', serif);
   font-size: 16.5px;
   line-height: 1.85;
 }
@@ -1342,7 +1352,7 @@ html, body { overflow: hidden; }
   display: block;
   background: transparent;
   color: var(--code-fg);
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family: var(--font-mono, "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
   font-size: 14px;
   line-height: 1.7;
   letter-spacing: 0.02em;
@@ -1355,7 +1365,7 @@ html, body { overflow: hidden; }
   border-radius: 6px;
   padding: 2px 8px;
   font-size: 0.9em;
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family: var(--font-mono, "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
   font-weight: 500;
 }
 
@@ -1425,7 +1435,7 @@ html, body { overflow: hidden; }
   font-size: 14px !important;
   line-height: 1.8 !important; /* 与代码行高一致(1.8)，避免累积误差 */
   letter-spacing: 0.02em;      /* 与代码字符间距一致，避免累积误差 */
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family: var(--font-mono, "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
   font-variant-numeric: tabular-nums; /* 等宽数字，纵向对齐更整齐 */
   text-align: right;
   pointer-events: none;        /* 不挡操作 */

@@ -8,6 +8,9 @@
 //   使用 .container 作用域内的 CSS 变量覆盖（--bg / --wysiwyg-bg / --preview-bg），避免影响标题栏等外围 UI。
 
 export type TypographyId = 'default' | 'serif' | 'modern' | 'reading' | 'academic'
+// 运行期依赖（仅在需要时使用）
+import { open as openDialog } from '@tauri-apps/plugin-dialog'
+import { readFile, writeFile, mkdir, exists, remove, BaseDirectory } from '@tauri-apps/plugin-fs'
 export type MdStyleId = 'standard' | 'github' | 'notion' | 'journal' | 'card' | 'docs'
 
 export interface ThemePrefs {
@@ -17,6 +20,10 @@ export interface ThemePrefs {
   typography: TypographyId
   mdStyle: MdStyleId
   themeId?: string
+  /** 自定义正文字体（预览/WYSIWYG 正文），为空则使用默认/排版风格 */
+  bodyFont?: string
+  /** 自定义等宽字体（编辑器与代码），为空则使用系统等宽栈 */
+  monoFont?: string
 }
 
 export interface ThemeDefinition {
@@ -61,6 +68,15 @@ export function applyThemePrefs(prefs: ThemePrefs): void {
     c.style.setProperty('--bg', prefs.editBg)
     c.style.setProperty('--preview-bg', prefs.readBg)
     c.style.setProperty('--wysiwyg-bg', prefs.wysiwygBg)
+    // 字体变量（为空则移除，回退默认）
+    try {
+      const bodyFont = (prefs.bodyFont || '').trim()
+      const monoFont = (prefs.monoFont || '').trim()
+      if (bodyFont) c.style.setProperty('--font-body', bodyFont)
+      else c.style.removeProperty('--font-body')
+      if (monoFont) c.style.setProperty('--font-mono', monoFont)
+      else c.style.removeProperty('--font-mono')
+    } catch {}
 
     // 排版：通过类名挂到 .container 上，覆盖 .preview-body 与 .ProseMirror
     c.classList.remove('typo-serif', 'typo-modern', 'typo-reading', 'typo-academic')
@@ -101,6 +117,8 @@ export function loadThemePrefs(): ThemePrefs {
       typography: (['default','serif','modern','reading','academic'] as string[]).includes(obj.typography) ? obj.typography : 'default',
       mdStyle: (['standard','github','notion','journal','card','docs'] as string[]).includes(mdStyle) ? mdStyle : 'standard',
       themeId: obj.themeId || undefined,
+      bodyFont: (typeof obj.bodyFont === 'string') ? obj.bodyFont : undefined,
+      monoFont: (typeof obj.monoFont === 'string') ? obj.monoFont : undefined,
     }
   } catch { return { ...DEFAULT_PREFS } }
 }
@@ -204,6 +222,16 @@ function createPanel(): HTMLDivElement {
         <button class="md-btn" data-md="docs">Docs</button>
       </div>
     </div>
+    <div class="theme-section">
+      <div class="theme-title">字体选择</div>
+      <div class="theme-fonts">
+        <label for="font-body-select">正文字体</label>
+        <select id="font-body-select"></select>
+        <label for="font-mono-select">等宽字体</label>
+        <select id="font-mono-select"></select>
+        <div class="font-actions">
+      </div>
+    </div>
   `
   return panel
 }
@@ -250,6 +278,151 @@ export function initThemeUI(): void {
     const prefs = loadThemePrefs()
     let lastSaved = { ...prefs }
     fillSwatches(panel, prefs)
+
+    // 字体选项：内置常见字体栈，首项为空表示使用默认/随排版
+    const bodyOptions: Array<{ label: string; stack: string }> = [
+      { label: '跟随排版（默认）', stack: '' },
+      { label: '系统无衬线（系统默认）', stack: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji'" },
+      { label: '现代（Inter 优先）', stack: "Inter, Roboto, 'Noto Sans', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif" },
+      { label: '衬线（Georgia/思源宋体）', stack: "Georgia, 'Times New Roman', Times, 'Source Han Serif SC', serif" },
+    ]
+    const monoOptions: Array<{ label: string; stack: string }> = [
+      { label: '系统等宽（默认）', stack: '' },
+      { label: 'JetBrains Mono', stack: "'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" },
+      { label: 'Fira Code', stack: "'Fira Code', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" },
+      { label: 'Consolas 系', stack: "Consolas, 'Courier New', ui-monospace, SFMono-Regular, Menlo, Monaco, 'Liberation Mono', monospace" },
+    ]
+
+    const bodySel = panel.querySelector('#font-body-select') as HTMLSelectElement | null
+    const monoSel = panel.querySelector('#font-mono-select') as HTMLSelectElement | null
+    const resetBtn = panel.querySelector('#font-reset') as HTMLButtonElement | null
+    const fontsWrap = panel.querySelector('.theme-fonts') as HTMLDivElement | null
+    // 构造“安装字体”按钮并重组操作区（避免直接改 HTML 模板造成编码问题）
+    let installBtn: HTMLButtonElement | null = null
+    if (fontsWrap) {
+      const actions = document.createElement('div')
+      actions.className = 'font-actions'
+      installBtn = document.createElement('button')
+      installBtn.className = 'font-install'
+      installBtn.id = 'font-install'
+      installBtn.textContent = '安装字体'
+      actions.appendChild(installBtn)
+      if (resetBtn) actions.appendChild(resetBtn)
+      fontsWrap.appendChild(actions)
+    }
+
+    // 自定义字体数据库（保存在 localStorage，仅记录元数据，文件存放于 AppLocalData/fonts）
+    type CustomFont = { id: string; name: string; rel: string; ext: string; family: string }
+    const FONT_DB_KEY = 'flymd:theme:fonts'
+    const FONTS_DIR = 'fonts'
+    function loadFontDb(): CustomFont[] {
+      try { const raw = localStorage.getItem(FONT_DB_KEY); if (!raw) return []; const arr = JSON.parse(raw); if (Array.isArray(arr)) return arr as CustomFont[] } catch {} return []
+    }
+    function saveFontDb(list: CustomFont[]) { try { localStorage.setItem(FONT_DB_KEY, JSON.stringify(list)) } catch {} }
+    function sanitizeId(s: string): string { return s.replace(/[^a-zA-Z0-9_-]+/g, '-') }
+    function getFormat(ext: string): string { const e = ext.toLowerCase(); if (e === 'ttf') return 'truetype'; if (e === 'otf') return 'opentype'; if (e === 'woff2') return 'woff2'; return 'woff' }
+    async function ensureFontsDir() { try { await mkdir(FONTS_DIR as any, { baseDir: BaseDirectory.AppLocalData, recursive: true } as any) } catch {} }
+    async function injectFontFace(f: CustomFont): Promise<void> {
+      try {
+        const bytes = await readFile(`${FONTS_DIR}/${f.rel}` as any, { baseDir: BaseDirectory.AppLocalData } as any) as Uint8Array
+        const fmt = getFormat(f.ext)
+        const blob = new Blob([bytes as any], { type: fmt === 'woff2' ? 'font/woff2' : (fmt === 'woff' ? 'font/woff' : 'font/ttf') })
+        const url = URL.createObjectURL(blob)
+        const css = `@font-face{font-family:'${f.family}';src:url(${url}) format('${fmt}');font-weight:normal;font-style:normal;font-display:swap;}`
+        const style = document.createElement('style')
+        style.dataset.userFont = f.id
+        style.textContent = css
+        document.head.appendChild(style)
+      } catch {}
+    }
+    function mergeCustomOptions(): { body: Array<{label:string; stack:string}>, mono: Array<{label:string;stack:string}> } {
+      const outB: Array<{label:string; stack:string}> = []
+      const outM: Array<{label:string; stack:string}> = []
+      const list = loadFontDb()
+      for (const f of list) {
+        outB.push({ label: `本地: ${f.name}`, stack: `'${f.family}', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif` })
+        outM.push({ label: `本地: ${f.name}`, stack: `'${f.family}', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace` })
+      }
+      return { body: outB, mono: outM }
+    }
+
+    function rebuildFontSelects(cur: ThemePrefs) {
+      try {
+        const extras = mergeCustomOptions()
+        if (bodySel) {
+          const all = bodyOptions.concat(extras.body)
+          bodySel.innerHTML = all
+            .map(({ label, stack }) => `<option value="${stack.replace(/\"/g, '&quot;')}">${label}</option>`)
+            .join('')
+          bodySel.value = (cur.bodyFont || '')
+        }
+        if (monoSel) {
+          const all = monoOptions.concat(extras.mono)
+          monoSel.innerHTML = all
+            .map(({ label, stack }) => `<option value="${stack.replace(/\"/g, '&quot;')}">${label}</option>`)
+            .join('')
+          monoSel.value = (cur.monoFont || '')
+        }
+      } catch {}
+    }
+    rebuildFontSelects(prefs)
+
+    function applyBodyFont(v: string) {
+      const cur = loadThemePrefs()
+      cur.bodyFont = v || undefined
+      saveThemePrefs(cur)
+      applyThemePrefs(cur)
+      lastSaved = { ...cur }
+    }
+    function applyMonoFont(v: string) {
+      const cur = loadThemePrefs()
+      cur.monoFont = v || undefined
+      saveThemePrefs(cur)
+      applyThemePrefs(cur)
+      lastSaved = { ...cur }
+    }
+
+    if (bodySel) bodySel.addEventListener('change', () => applyBodyFont(bodySel!.value))
+    if (monoSel) monoSel.addEventListener('change', () => applyMonoFont(monoSel!.value))
+    if (resetBtn) resetBtn.addEventListener('click', () => {
+      const cur = loadThemePrefs()
+      cur.bodyFont = undefined
+      cur.monoFont = undefined
+      saveThemePrefs(cur)
+      applyThemePrefs(cur)
+      rebuildFontSelects(cur)
+      lastSaved = { ...cur }
+    })
+
+    // 安装字体：拷贝到 AppLocalData/fonts，并注册 @font-face
+    if (installBtn) installBtn.addEventListener('click', async () => {
+      try {
+        const picked = await openDialog({ multiple: true, filters: [{ name: '字体', extensions: ['ttf','otf','woff','woff2'] }] } as any)
+        const files: string[] = Array.isArray(picked) ? picked as any : (picked ? [picked as any] : [])
+        if (!files.length) return
+        await ensureFontsDir()
+        let db = loadFontDb()
+        for (const p of files) {
+          try {
+            const nameFull = (p.split(/[\\/]+/).pop() || '').trim()
+            if (!nameFull) continue
+            const m = nameFull.match(/^(.*?)(\.[^.]+)?$/) || [] as any
+            const stem = (m?.[1] || 'font').trim()
+            const ext = ((m?.[2] || '').replace('.', '') || 'ttf').toLowerCase()
+            const id = sanitizeId(stem + '-' + Math.random().toString(36).slice(2,6))
+            const family = 'UserFont-' + sanitizeId(stem)
+            const rel = `${id}.${ext}`
+            const bytes = await readFile(p as any)
+            await writeFile(`${FONTS_DIR}/${rel}` as any, bytes as any, { baseDir: BaseDirectory.AppLocalData } as any)
+            const rec: CustomFont = { id, name: stem, rel, ext, family }
+            db.push(rec)
+            await injectFontFace(rec)
+          } catch {}
+        }
+        saveFontDb(db)
+        rebuildFontSelects(loadThemePrefs())
+      } catch {}
+    })
 
     // 悬停预览：在颜色块上悬停时即时预览对应背景色，离开当前分组时还原
     const applyPreview = (forWhich: string, color: string) => {
