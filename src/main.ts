@@ -7032,9 +7032,17 @@ async function activatePlugin(p: InstalledPlugin): Promise<void> {
   const dataUrl = 'data:text/javascript;charset=utf-8,' + encodeURIComponent(code)
   const mod: any = await import(/* @vite-ignore */ dataUrl)
   const http = await getHttpClient()
+  async function openAiWindow() {
+    try {
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+      const label = 'ai-assistant-' + Math.random().toString(36).slice(2, 8)
+      new WebviewWindow(label, { url: 'index.html#ai-assistant', width: 860, height: 640, title: 'AI 助手' })
+    } catch (e) { console.error('openAiWindow 失败', e) }
+  }
   const ctx = {
     http,
     invoke,
+    openAiWindow,
     storage: {
       get: async (key: string) => {
         try { if (!store) return null; const all = (await store.get('plugin:' + p.id)) as any || {}; return all[key] } catch { return null }
@@ -7062,7 +7070,11 @@ async function activatePlugin(p: InstalledPlugin): Promise<void> {
     },
     getEditorValue: () => editor.value,
     setEditorValue: (v: string) => { try { editor.value = v; dirty = true; refreshTitle(); refreshStatus(); if (mode === 'preview') { void renderPreview() } else if (wysiwyg) { scheduleWysiwygRender() } } catch {} },
+    getSelection: () => { try { const s = editor.selectionStart >>> 0; const e = editor.selectionEnd >>> 0; const a = Math.min(s, e); const b = Math.max(s, e); return { start: a, end: b, text: editor.value.slice(a, b) } } catch { return { start: 0, end: 0, text: '' } } },
+    replaceRange: (start: number, end: number, text: string) => { try { const v = String(editor.value || ''); const a = Math.max(0, Math.min(start >>> 0, end >>> 0)); const b = Math.max(start >>> 0, end >>> 0); editor.value = v.slice(0, a) + String(text || '') + v.slice(b); const caret = a + String(text || '').length; editor.selectionStart = editor.selectionEnd = caret; dirty = true; refreshTitle(); refreshStatus(); if (mode === 'preview') { void renderPreview() } else if (wysiwyg) { scheduleWysiwygRender() } } catch {} },
+    insertAtCursor: (text: string) => { try { const s = editor.selectionStart >>> 0; const e = editor.selectionEnd >>> 0; const a = Math.min(s, e); const b = Math.max(s, e); const v = String(editor.value || ''); editor.value = v.slice(0, a) + String(text || '') + v.slice(b); const caret = a + String(text || '').length; editor.selectionStart = editor.selectionEnd = caret; dirty = true; refreshTitle(); refreshStatus(); if (mode === 'preview') { void renderPreview() } else if (wysiwyg) { scheduleWysiwygRender() } } catch {} },
   }
+  try { (window as any).__pluginCtx__ = (window as any).__pluginCtx__ || {}; (window as any).__pluginCtx__[p.id] = ctx } catch {}
   if (typeof mod?.activate === 'function') {
     await mod.activate(ctx)
   }
@@ -7326,6 +7338,26 @@ async function loadAndActivateEnabledPlugins(): Promise<void> {
     for (const p of toEnable) {
       try { await activatePlugin(p) } catch (e) { console.warn('插件激活失败', p.id, e) }
     }
+    // 如果当前窗口为 AI 独立窗口，尝试自动挂载 AI 助手
+    try {
+      if (location.hash === '#ai-assistant') {
+        const ai = (map as any)['ai-assistant']
+        if (ai) {
+          const mod = activePlugins.get('ai-assistant') as any
+          const ctx = (window as any).__pluginCtx__?.['ai-assistant']
+          if (mod && typeof mod?.standalone === 'function' && ctx) {
+            await mod.standalone(ctx)
+          }
+        }
+        // 独立窗口：隐藏主界面元素，仅保留插件窗口
+        try {
+          const style = document.createElement('style')
+          style.id = 'ai-standalone-style'
+          style.textContent = 'body>*{display:none !important} #ai-assist-win{display:block !important}'
+          document.head.appendChild(style)
+        } catch {}
+      }
+    } catch {}
   } catch {}
 }
 
