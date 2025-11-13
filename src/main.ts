@@ -1143,66 +1143,65 @@ async function renderPreviewLight() {
     }
   } catch {}
   const html = md!.render(raw)
-  if (!sanitizeHtml) {
-    try {
-      const mod: any = await import('dompurify')
-      const DOMPurify = mod?.default || mod
-      sanitizeHtml = (h: string, cfg?: any) => DOMPurify.sanitize(h, cfg)
-    } catch { sanitizeHtml = (h: string) => h }
-  }
+  // 方案 A：占位符机制不需要 DOMPurify
+  // KaTeX 占位符（data-math 属性）是安全的，后续会用 KaTeX.render() 替换
   const safe = html
-  let _safeOrMathHtml = safe
-  // 生产环境补丁：先尝试将数学占位渲染为 KaTeX，再修复可能被清洗的 SVG 属性
+  // 渲染 .md-math-* 占位符为 KaTeX
   try {
     const tempDiv = document.createElement('div')
     tempDiv.innerHTML = safe
-    // 渲染 .md-math-* 占位符为 KaTeX（与所见模式一致，绕过消毒破坏）
     try {
       const mathNodes = Array.from(tempDiv.querySelectorAll('.md-math-inline, .md-math-block')) as HTMLElement[]
       if (mathNodes.length > 0) {
-        const katexMod: any = await import('katex')
-        if (!katexCssLoaded) { try { await import('katex/dist/katex.min.css'); katexCssLoaded = true } catch {} }
-        const K = (katexMod && (katexMod.default || katexMod))
+        // 使用所见模式的导入方式
+        const katex = await import('katex')
+
+        if (!katexCssLoaded) {
+          await import('katex/dist/katex.min.css')
+          katexCssLoaded = true
+
+          // 手动注入关键 CSS 规则（同阅读模式）
+          const criticalStyle = document.createElement('style')
+          criticalStyle.textContent = `
+            /* KaTeX critical styles for production build */
+            .katex { font-size: 1em; text-indent: 0; text-rendering: auto; }
+            .katex svg { display: inline-block; position: relative; width: 100%; height: 100%; }
+            .katex svg path { fill: currentColor; }
+            .katex .hide-tail { overflow: hidden; }
+            .md-math-inline .katex { display: inline-block; }
+            .md-math-block .katex { display: block; text-align: center; }
+          `
+          document.head.appendChild(criticalStyle)
+        }
+
+        // 渲染每个数学节点
         for (const el of mathNodes) {
           try {
-            const expr = el.getAttribute('data-math') || ''
-            const display = el.classList.contains('md-math-block')
-            if (K && typeof K.render === 'function') K.render(expr, el, { throwOnError: false, displayMode: display })
-            else if ((katexMod as any)?.render) (katexMod as any).render(expr, el, { throwOnError: false, displayMode: display })
-            else el.textContent = expr
-          } catch {}
+            const value = el.getAttribute('data-math') || ''
+            const displayMode = el.classList.contains('md-math-block')
+
+            // 清空元素
+            el.innerHTML = ''
+
+            // 使用 katex.default.render()（与所见模式相同）
+            katex.default.render(value, el, {
+              throwOnError: false,
+              displayMode: displayMode,
+            })
+          } catch (e) {
+            console.error('[KaTeX 导出] 渲染单个公式失败:', e)
+            el.textContent = el.getAttribute('data-math') || ''
+          }
         }
       }
-    } catch {}
-    const katexSvgs = tempDiv.querySelectorAll('.katex svg')
-    let needsFix = false
-    katexSvgs.forEach(svg => {
-      if (!svg.getAttribute('viewBox')) needsFix = true
-      svg.querySelectorAll('path').forEach(p => { if (!p.getAttribute('d')) needsFix = true })
-    })
-    if (needsFix && html.includes('katex')) {
-      const originalDiv = document.createElement('div')
-      originalDiv.innerHTML = html
-      const originalSvgs = originalDiv.querySelectorAll('.katex svg')
-      originalSvgs.forEach((origSvg, i) => {
-        const cleanedSvg = katexSvgs[i] as SVGElement
-        if (!cleanedSvg) return
-        const svgAttrs = ['viewBox','width','height','preserveAspectRatio']
-        svgAttrs.forEach(attr => { const v = origSvg.getAttribute(attr); if (v && !cleanedSvg.getAttribute(attr)) cleanedSvg.setAttribute(attr, v) })
-        const origPaths = origSvg.querySelectorAll('path')
-        const cleanedPaths = cleanedSvg.querySelectorAll('path')
-        origPaths.forEach((op, j) => {
-          const d = op.getAttribute('d')
-          const cp = cleanedPaths[j]
-          if (d && cp && !cp.getAttribute('d')) { try { cp.setAttribute('d', d) } catch {} }
-        })
-      })
-      preview.innerHTML = `<div class="preview-body">${tempDiv.innerHTML}</div>`
-      return
+    } catch (mainErr) {
+      console.error('[KaTeX 导出] 主流程崩溃:', mainErr)
     }
-    _safeOrMathHtml = tempDiv.innerHTML
-  } catch {}
-  try { preview.innerHTML = `<div class="preview-body">${_safeOrMathHtml}</div>` } catch {}
+    try { preview.innerHTML = `<div class="preview-body">${tempDiv.innerHTML}</div>` } catch {}
+  } catch {
+    // 回退：如果 KaTeX 渲染失败，使用原始 HTML
+    try { preview.innerHTML = `<div class="preview-body">${safe}</div>` } catch {}
+  }
   // 轻渲染后也生成锚点，提升滚动同步体验
   // 旧所见模式移除：不再重建锚点表
 }
@@ -2562,55 +2561,9 @@ async function renderPreview() {
   } catch {}
   console.log('Markdown 渲染后的 HTML 片段:', html.substring(0, 500))
 
-  // 配置 DOMPurify 允许 SVG 和 MathML
-  if (!sanitizeHtml) {
-    try {
-      const mod: any = await import('dompurify')
-      const DOMPurify = mod?.default || mod
-      sanitizeHtml = (h: string, cfg?: any) => DOMPurify.sanitize(h, cfg)
-    } catch (e) {
-      console.error('加载 DOMPurify 失败', e)
-      // 最保守回退：不消毒直接渲染（仅调试时），生产不应触达此分支
-      sanitizeHtml = (h: string) => h
-    }
-  }
+  // 方案 A：占位符机制不需要 DOMPurify
+  // KaTeX 占位符（data-math 属性）是安全的，后续会用 KaTeX.render() 替换
   const safe = html
-
-  console.log('DOMPurify 清理后的 HTML 片段:', safe.substring(0, 500))
-  // 包裹一层容器，用于样式定宽居中显示
-  // 生产环境补丁：若 DOMPurify 清洗掉了 KaTeX SVG 的关键属性（如 path@d），从未清洗 HTML 中恢复
-  try {
-    const tempDiv = document.createElement('div')
-    tempDiv.innerHTML = safe
-    const katexSvgs = tempDiv.querySelectorAll('.katex svg')
-    let needsFix = false
-    katexSvgs.forEach(svg => {
-      if (!svg.getAttribute('viewBox')) needsFix = true
-      svg.querySelectorAll('path').forEach(p => { if (!p.getAttribute('d')) needsFix = true })
-    })
-    if (needsFix && html.includes('katex')) {
-      const originalDiv = document.createElement('div')
-      originalDiv.innerHTML = html
-      const originalSvgs = originalDiv.querySelectorAll('.katex svg')
-      originalSvgs.forEach((origSvg, i) => {
-        const cleanedSvg = katexSvgs[i] as SVGElement
-        if (!cleanedSvg) return
-        const svgAttrs = ['viewBox','width','height','preserveAspectRatio']
-        svgAttrs.forEach(attr => { const v = origSvg.getAttribute(attr); if (v && !cleanedSvg.getAttribute(attr)) cleanedSvg.setAttribute(attr, v) })
-        const origPaths = origSvg.querySelectorAll('path')
-        const cleanedPaths = cleanedSvg.querySelectorAll('path')
-        origPaths.forEach((op, j) => {
-          const d = op.getAttribute('d')
-          const cp = cleanedPaths[j]
-          if (d && cp && !cp.getAttribute('d')) { try { cp.setAttribute('d', d) } catch {} }
-        })
-      })
-      preview.innerHTML = `<div class="preview-body">${tempDiv.innerHTML}</div>`
-      return
-    }
-  } catch {}
-  preview.innerHTML = `<div class="preview-body">${safe}</div>`
-  try { decorateCodeBlocks(preview) } catch {}
   // WYSIWYG 防闪烁：使用离屏容器完成 Mermaid 替换后一次性提交
   try {
     preview.classList.add('rendering')
@@ -2618,23 +2571,78 @@ async function renderPreview() {
     buf.className = 'preview-body'
     buf.innerHTML = safe
     // 与所见模式一致：在消毒之后，用 KaTeX 对占位元素进行实际渲染
+    // 🔍 添加可视化调试面板
+    // 【方案：使用与所见模式完全相同的方式】
+    // 所见模式工作正常，直接复制其成功方案
+    // 渲染 KaTeX 数学公式（阅读模式）
     try {
       const mathNodes = Array.from(buf.querySelectorAll('.md-math-inline, .md-math-block')) as HTMLElement[]
+
       if (mathNodes.length > 0) {
-        const katexMod: any = await import('katex')
-        if (!katexCssLoaded) { try { await import('katex/dist/katex.min.css'); katexCssLoaded = true } catch {} }
-        const K = (katexMod && (katexMod.default || katexMod))
+        // 使用所见模式的导入方式
+        const katex = await import('katex')
+
+        // 加载 CSS（只加载一次）
+        if (!katexCssLoaded) {
+          await import('katex/dist/katex.min.css')
+          katexCssLoaded = true
+
+          // 手动注入关键 CSS 规则以确保根号等符号正确显示
+          // 这是必需的，因为在 Tauri 生产构建中动态 CSS 可能无法完全应用
+          const criticalStyle = document.createElement('style')
+          criticalStyle.textContent = `
+            /* KaTeX critical styles for production build */
+            .katex {
+              font-size: 1em;
+              text-indent: 0;
+              text-rendering: auto;
+            }
+            .katex svg {
+              display: inline-block;
+              position: relative;
+              width: 100%;
+              height: 100%;
+            }
+            .katex svg path {
+              fill: currentColor;
+            }
+            .katex .hide-tail {
+              overflow: hidden;
+            }
+            .md-math-inline .katex {
+              display: inline-block;
+            }
+            .md-math-block .katex {
+              display: block;
+              text-align: center;
+            }
+          `
+          document.head.appendChild(criticalStyle)
+        }
+
+        // 渲染每个数学节点
         for (const el of mathNodes) {
           try {
-            const expr = el.getAttribute('data-math') || ''
-            const display = el.classList.contains('md-math-block')
-            if (K && typeof K.render === 'function') K.render(expr, el, { throwOnError: false, displayMode: display })
-            else if ((katexMod as any)?.render) (katexMod as any).render(expr, el, { throwOnError: false, displayMode: display })
-            else el.textContent = expr
-          } catch {}
+            const value = el.getAttribute('data-math') || ''
+            const displayMode = el.classList.contains('md-math-block')
+
+            // 清空元素
+            el.innerHTML = ''
+
+            // 使用 katex.default.render()（与所见模式相同）
+            katex.default.render(value, el, {
+              throwOnError: false,
+              displayMode: displayMode,
+            })
+          } catch (e) {
+            // 渲染失败时回退到纯文本
+            el.textContent = el.getAttribute('data-math') || ''
+          }
         }
       }
-    } catch {}
+    } catch (mainErr) {
+      console.error('[KaTeX 阅读模式] 渲染失败:', mainErr)
+    }
     // 任务列表映射与事件绑定（仅阅读模式）
     try {
       if (!wysiwyg) {
