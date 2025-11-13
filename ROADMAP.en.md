@@ -2,6 +2,13 @@
 
 [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
 
+## Update v0.2.7
+- Added: Ctrl+H find & replace in WYSIWYG mode.
+- Added: Replaced WebView's built-in "Find in page" with a unified JS search panel.
+- Fixed: Ctrl+F match counter in Reading/Preview mode reporting double counts.
+- Fixed: In Edit mode, cycling backwards in find & replace could lose the inverted selection highlight after wrapping to the first match.
+- Fixed: KaTeX square roots sometimes not rendering in the preview layer, in SVG exports, or when saving as PDF.
+- Improved: Auto-update download pipeline — added ghfast.top as an extra proxy prefix and tweaked some styles (including sidebar header z-index).
 ## Update v0.2.6
 - Fixed: Missing LaTeX symbols in Reading mode rendering
 - Improved: Mermaid is now supported when exporting to Word (DOCX/WPS)
