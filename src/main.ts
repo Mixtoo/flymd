@@ -5587,15 +5587,22 @@ function bindEvents() {
       if (idx >= 0) setSel(idx, idx + term.length)
     }
     function findPrev() {
+      // 上一个：严格在光标前搜索；未命中则循环到最后一个
       const term = String(_findInput?.value || '')
-      if (!term) return
+      if (!term) { try { editor.focus() } catch {} ; return }
       const val = String(editor.value || '')
       const hay = norm(val)
       const needle = norm(term)
       const { s } = getSel()
-      const before = hay.slice(0, Math.max(s - 1, 0))
-      const idx = before.lastIndexOf(needle)
-      if (idx >= 0) setSel(idx, idx + term.length)
+      const before = hay.slice(0, Math.max(0, s >>> 0))
+      let idx = before.lastIndexOf(needle)
+      if (idx < 0) idx = hay.lastIndexOf(needle) // 循环到文末最后一个
+      if (idx >= 0) {
+        setSel(idx, idx + term.length)
+      } else {
+        // 未找到也要把焦点送回编辑器，避免按钮聚焦导致选区高亮消失
+        try { editor.focus() } catch {}
+      }
     }
     function replaceOne() {
       const term = String(_findInput?.value || '')
