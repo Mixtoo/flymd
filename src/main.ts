@@ -7448,7 +7448,7 @@ async function getMarketUrl(): Promise<string | null> {
   return 'https://raw.githubusercontent.com/flyhunterl/flymd/main/index.json'
 }
 
-// 加载“可安装的扩展”索引（带缓存与回退）
+// 加载“可安装的扩展”索引（带缓存与多源回退：GitHub → 官网 → 本地文件 → 内置兜底）
 async function loadInstallablePlugins(force = false): Promise<InstallableItem[]> {
   // 1) 缓存（Store）
   try {
@@ -7463,11 +7463,32 @@ async function loadInstallablePlugins(force = false): Promise<InstallableItem[]>
 
   // 2) 远程索引
   try {
-    const url = await getMarketUrl()
-    if (url) {
-      const text = await fetchTextSmart(url)
+    const primary = await getMarketUrl()
+    const fallback = 'https://flymd.llingfei.com/plugins/index.json'
+    const tried: string[] = []
+    let text: string | null = null
+    let ttlMs = 3600_000
+
+    const urls: string[] = []
+    if (primary) urls.push(primary)
+    if (!urls.includes(fallback)) urls.push(fallback)
+
+    for (const u of urls) {
+      if (!u) continue
+      tried.push(u)
+      try {
+        const t = await fetchTextSmart(u)
+        if (!t || !String(t).trim()) continue
+        text = String(t)
+        break
+      } catch {
+        // 忽略失败，尝试下一个源
+      }
+    }
+
+    if (text) {
       const json = JSON.parse(text)
-      const ttl = Math.max(10_000, Math.min(24 * 3600_000, (json.ttlSeconds ?? 3600) * 1000))
+      ttlMs = Math.max(10_000, Math.min(24 * 3600_000, (json.ttlSeconds ?? 3600) * 1000))
       let items = (json.items ?? [])
         .filter((x: any) => x && typeof x.id === 'string' && x.install && (x.install.type === 'github' || x.install.type === 'manifest') && typeof x.install.ref === 'string')
       // 推荐优先，其次 rank 越小越靠前，其次按名称
@@ -7485,7 +7506,12 @@ async function loadInstallablePlugins(force = false): Promise<InstallableItem[]>
         })
       } catch {}
       items = items.slice(0, 100)
-      if (store) { await store.set('pluginMarket:cache', { ts: Date.now(), ttl, items }); await store.save() }
+      if (store) {
+        try {
+          await store.set('pluginMarket:cache', { ts: Date.now(), ttl: ttlMs, items, tried })
+          await store.save()
+        } catch {}
+      }
       if (items.length > 0) return items as InstallableItem[]
     }
   } catch {}
