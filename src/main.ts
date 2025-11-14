@@ -3745,6 +3745,24 @@ async function saveFile() {
   }
 }
 
+async function exportCurrentDocToPdf(target: string): Promise<void> {
+  const out = String(target || '').trim()
+  if (!out) throw new Error('导出 PDF 目标路径为空')
+  if (typeof writeFile !== 'function') {
+    alert('导出 PDF 功能需要在 Tauri 应用中使用')
+    throw new Error('writeFile not available')
+  }
+  status.textContent = '正在导出 PDF...'
+  await renderPreview()
+  const el = preview.querySelector('.preview-body') as HTMLElement | null
+  if (!el) throw new Error('未找到预览内容容器')
+  const { exportPdf } = await import('./exporters/pdf')
+  const bytes = await exportPdf(el, {})
+  await writeFile(out as any, bytes as any)
+  status.textContent = '已导出'
+  setTimeout(() => refreshStatus(), 2000)
+}
+
 // 另存为
 async function saveAs() {
   try {
@@ -7571,6 +7589,32 @@ async function activatePlugin(p: InstalledPlugin): Promise<void> {
     getSelection: () => { try { const s = editor.selectionStart >>> 0; const e = editor.selectionEnd >>> 0; const a = Math.min(s, e); const b = Math.max(s, e); return { start: a, end: b, text: editor.value.slice(a, b) } } catch { return { start: 0, end: 0, text: '' } } },
     replaceRange: (start: number, end: number, text: string) => { try { const v = String(editor.value || ''); const a = Math.max(0, Math.min(start >>> 0, end >>> 0)); const b = Math.max(start >>> 0, end >>> 0); editor.value = v.slice(0, a) + String(text || '') + v.slice(b); const caret = a + String(text || '').length; editor.selectionStart = editor.selectionEnd = caret; dirty = true; refreshTitle(); refreshStatus(); if (mode === 'preview') { void renderPreview() } else if (wysiwyg) { scheduleWysiwygRender() } } catch {} },
     insertAtCursor: (text: string) => { try { const s = editor.selectionStart >>> 0; const e = editor.selectionEnd >>> 0; const a = Math.min(s, e); const b = Math.max(s, e); const v = String(editor.value || ''); editor.value = v.slice(0, a) + String(text || '') + v.slice(b); const caret = a + String(text || '').length; editor.selectionStart = editor.selectionEnd = caret; dirty = true; refreshTitle(); refreshStatus(); if (mode === 'preview') { void renderPreview() } else if (wysiwyg) { scheduleWysiwygRender() } } catch {} },
+    openFileByPath: async (path: string) => {
+      try { await openFile2(path) } catch (e) { console.error('plugin openFileByPath 失败', e); throw e }
+    },
+    exportCurrentToPdf: async (target: string) => {
+      try { await exportCurrentDocToPdf(target) } catch (e) { console.error('plugin exportCurrentToPdf 失败', e); throw e }
+    },
+    pickDocFiles: async (opt?: { multiple?: boolean }) => {
+      try {
+        if (typeof open !== 'function') {
+          alert('文件打开功能需要在 Tauri 应用中使用')
+          return [] as string[]
+        }
+        const sel = await open({
+          multiple: !!(opt && opt.multiple),
+          filters: [
+            { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
+          ]
+        })
+        if (!sel) return [] as string[]
+        if (Array.isArray(sel)) return sel.map(x => String(x || ''))
+        return [String(sel)]
+      } catch (e) {
+        console.error('plugin pickDocFiles 失败', e)
+        return [] as string[]
+      }
+    },
   }
   try { (window as any).__pluginCtx__ = (window as any).__pluginCtx__ || {}; (window as any).__pluginCtx__[p.id] = ctx } catch {}
   if (typeof mod?.activate === 'function') {

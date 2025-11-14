@@ -1,0 +1,10 @@
+{
+  "id": "batch-pdf",
+  "name": "批量导出 PDF",
+  "version": "0.1.0",
+  "author": "flyMD",
+  "description": "一次选择多个文档并批量导出为 PDF",
+  "homepage": "https://github.com/flyhunterl/flymd",
+  "main": "main.js"
+}
+
