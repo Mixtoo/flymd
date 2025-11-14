@@ -2,6 +2,11 @@
 
 [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
 
+## Update v0.2.8
+- Added: Update checking and hot-reload support for extension plugins.
+- Improved: Rendering logic of the extension marketplace.
+- Improved: Removed obsolete dependencies and debug logging to optimize performance and reduce installer/bundle size.
+
 ## Update v0.2.7
 - Added: Ctrl+H find & replace in WYSIWYG mode.
 - Added: Replaced WebView's built-in "Find in page" with a unified JS search panel.
