@@ -5762,8 +5762,8 @@ function bindEvents() {
         const sel = window.getSelection()
         if (sel) sel.removeAllRanges()
 
-        // 如果搜索词变了，重新收集匹配项
-        if (_lastFind !== term) {
+        // 如果搜索词变了，或当前无缓存结果，则重新收集匹配项
+        if (_lastFind !== term || _previewFindMatches.length === 0) {
           _previewFindMatches = []
           _previewFindIndex = -1
           _lastFind = term
