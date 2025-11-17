@@ -1,6 +1,6 @@
 [package]
 name = "flymd"
-version = "0.3.2"
+version = "0.3.3"
 description = "飞速 Markdown 编辑器"
 authors = ["flymd"]
 edition = "2021"
@@ -39,4 +39,3 @@ codegen-units = 1
 opt-level = "z"
 lto = true
 strip = true
-

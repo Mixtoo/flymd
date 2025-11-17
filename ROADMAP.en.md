@@ -2,6 +2,11 @@
 
 [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
 
+## Update v0.3.3
+- Fixed: Manual WebDAV sync no longer gets skipped when the local tree appears unchanged, avoiding missed remote updates.
+- Improved: Switching between Edit / Reading / WYSIWYG modes now preserves the scroll position so toggling modes no longer jumps around.
+- Improved: Outline navigation and Find/Replace — added match counters with current/total display and fixed several cases where clicking an outline item or search result would not scroll accurately to the target in Edit or Reading mode.
+
 ## Update v0.3.2
 - Fixed: PDF outline/bookmarks could become invalid; now exported and viewed PDFs retain correct table-of-contents navigation
 - Improved: After WebDAV sync completes, the document library tree is proactively refreshed so you don't need to refresh manually
