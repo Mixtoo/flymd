@@ -725,14 +725,17 @@ body > .block-menu { display: none !important; }
   opacity: 0;
   pointer-events: none;
 }
-.library .lib-header { position: sticky; top: 0; background: var(--panel-bg); border-bottom: 1px solid var(--border); padding: 8px 10px; font-size: 12px; display: flex; align-items: center; gap: 8px; z-index: 1; }
-.library .lib-path { flex: 1; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.library .lib-header { position: sticky; top: 0; background: var(--panel-bg); border-bottom: 1px solid var(--border); padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; z-index: 1; }
+.library .lib-title-row { display: flex; align-items: center; gap: 10px; padding-bottom: 2px; }
+.library .lib-choose-btn { -webkit-app-region: no-drag; cursor: pointer; border: none; background: rgba(127,127,127,0.12); color: var(--fg); border-radius: 8px; padding: 6px 14px; font-size: 13px; font-weight: 600; transition: all 0.15s ease; flex-shrink: 0; }
+.library .lib-choose-btn:hover { background: rgba(127,127,127,0.2); }
+.library .lib-choose-btn:active { background: rgba(127,127,127,0.25); }
+.library .lib-name { flex: 1; color: var(--fg); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; font-weight: 600; padding-left: 4px; opacity: 0.9; }
+.library .lib-actions { display: flex; align-items: center; gap: 6px; }
+.library .lib-action-btn { -webkit-app-region: no-drag; cursor: pointer; border: 1px solid var(--border); background: rgba(127,127,127,0.04); color: var(--fg); border-radius: 6px; padding: 5px 10px; font-size: 12px; font-weight: 500; transition: all 0.15s ease; flex: 1; text-align: center; }
+.library .lib-action-btn:hover { background: rgba(127,127,127,0.12); border-color: rgba(127,127,127,0.25); }
+.library .lib-action-btn.active { background: rgba(127,127,127,0.18); color: var(--fg); border-color: rgba(127,127,127,0.3); font-weight: 600; }
 .library .hidden { display: none !important; }
-.library .lib-tabs { display: inline-flex; align-items: center; gap: 6px; }
-.library .lib-tab { border: 1px solid var(--border); background: transparent; color: var(--fg); border-radius: 6px; padding: 2px 8px; font-size: 12px; cursor: pointer; }
-.library .lib-tab.active { background: rgba(127,127,127,0.12); }
-.library .lib-btn { -webkit-app-region: no-drag; cursor: pointer; border: 1px solid var(--border); background: rgba(127,127,127,0.08); color: var(--fg); border-radius: 6px; padding: 4px 8px; font-size: 12px; }
-.library .lib-btn:hover { background: rgba(127,127,127,0.14); }
 .library { -webkit-app-region: no-drag; }
 .library .lib-tree { padding: 8px 6px 14px 6px; font-size: 13px; -webkit-app-region: no-drag; }
 .library .lib-outline {

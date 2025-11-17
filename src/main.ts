@@ -1934,13 +1934,16 @@ wysiwygCaretEl.id = 'wysiwyg-caret'
   library.className = 'library hidden'
   library.innerHTML = `
     <div class="lib-header">
-      <button class="lib-btn" id="lib-choose"></button>
-      <div class="lib-path" id="lib-path"></div>
-      <div class="lib-tabs">
-        <button class="lib-tab active" id="lib-tab-files">${t('tab.files')}</button>
-        <button class="lib-tab" id="lib-tab-outline">${t('tab.outline')}</button>
+      <div class="lib-title-row">
+        <button class="lib-choose-btn" id="lib-choose">${t('lib.choose')}</button>
+        <div class="lib-name" id="lib-path"></div>
       </div>
-      <button class="lib-btn" id="lib-refresh"></button>
+      <div class="lib-actions">
+        <button class="lib-action-btn active" id="lib-tab-files">${t('tab.files')}</button>
+        <button class="lib-action-btn" id="lib-tab-outline">${t('tab.outline')}</button>
+        <button class="lib-action-btn" id="lib-refresh">${t('lib.refresh')}</button>
+        <button class="lib-action-btn" id="lib-pin">${t('lib.pin.auto')}</button>
+      </div>
     </div>
     <div class="lib-tree" id="lib-tree"></div>
     <div class="lib-outline hidden" id="lib-outline"></div>
@@ -1964,15 +1967,11 @@ wysiwygCaretEl.id = 'wysiwyg-caret'
   } catch {}
   try {
     const elPath = library.querySelector('#lib-path') as HTMLDivElement | null
-    const elChoose = library.querySelector('#lib-choose') as HTMLButtonElement | null
-    const elRefresh = library.querySelector('#lib-refresh') as HTMLButtonElement | null
-    // 去除“未选择库目录”默认提示，保持为空，避免长期提示误导
+    // 去除"未选择库目录"默认提示，保持为空，避免长期提示误导
     if (elPath) elPath.textContent = ''
-    if (elChoose) elChoose.textContent = t('lib.choose')
-    if (elRefresh) elRefresh.textContent = t('lib.refresh')
     // 初次渲染尝试同步库路径显示（若已存在旧配置）
     try { void refreshLibraryUiAndTree(false) } catch {}
-    // 绑定二级标签：文件 / 大纲
+    // 绑定标签页切换：目录 / 大纲
     const tabFiles = library.querySelector('#lib-tab-files') as HTMLButtonElement | null
     const tabOutline = library.querySelector('#lib-tab-outline') as HTMLButtonElement | null
     const treeEl = library.querySelector('#lib-tree') as HTMLDivElement | null
@@ -1988,15 +1987,9 @@ wysiwygCaretEl.id = 'wysiwyg-caret'
     }
     tabFiles?.addEventListener('click', () => activateLibTab('files'))
     tabOutline?.addEventListener('click', () => activateLibTab('outline'))
-  } catch {}
-  // 动态插入“固定”按钮，允许切换覆盖/固定两种模式
-  try {
-    const hdr = library.querySelector('.lib-header') as HTMLDivElement | null
-    if (hdr && !document.getElementById('lib-pin')) {
-      const elPin = document.createElement('button') as HTMLButtonElement
-      elPin.className = 'lib-btn'
-      elPin.id = 'lib-pin'
-      hdr.appendChild(elPin)
+    // 绑定固定/自动切换按钮
+    const elPin = library.querySelector('#lib-pin') as HTMLButtonElement | null
+    if (elPin) {
       ;(async () => { try { libraryDocked = await getLibraryDocked(); elPin.textContent = libraryDocked ? t('lib.pin.auto') : t('lib.pin.fixed'); applyLibraryLayout() } catch {} })()
       elPin.addEventListener('click', () => { void setLibraryDocked(!libraryDocked) })
     }
@@ -5236,8 +5229,23 @@ function showLangMenu() {
   showTopMenu(anchor, items)
 }
 
-// 刷新文件树（不再显示库路径）
+// 刷新文件树并更新库名称显示
 async function refreshLibraryUiAndTree(refreshTree = true) {
+  // 更新库名称显示
+  try {
+    const elPath = document.getElementById('lib-path') as HTMLDivElement | null
+    if (elPath) {
+      const id = await getActiveLibraryId()
+      if (id) {
+        const libs = await getLibraries()
+        const cur = libs.find(x => x.id === id)
+        elPath.textContent = cur?.name || ''
+      } else {
+        elPath.textContent = ''
+      }
+    }
+  } catch {}
+
   if (!refreshTree) return
   try {
     const treeEl = document.getElementById('lib-tree') as HTMLDivElement | null

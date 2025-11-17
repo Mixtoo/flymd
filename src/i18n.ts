@@ -54,9 +54,9 @@ const dict = {
     'mode.read': '阅读',
     'mode.wysiwyg': '所见',
 
-    'tab.files': '文件',
+    'tab.files': '目录',
     'tab.outline': '大纲',
-    'tab.files.short': '文件',
+    'tab.files.short': '目录',
     'tab.outline.short': '大纲',
 
     'lib.choose': '库',
@@ -216,9 +216,9 @@ const dict = {
     'mode.read': 'Preview',
     'mode.wysiwyg': 'WYSIWYG',
 
-    'tab.files': 'Files',
+    'tab.files': 'Tree',
     'tab.outline': 'Outline',
-    'tab.files.short': 'Files',
+    'tab.files.short': 'Tree',
     'tab.outline.short': 'Outl',
 
     'lib.choose': 'Library',
