@@ -25,6 +25,8 @@ export interface ThemePrefs {
   bodyFont?: string
   /** 自定义等宽字体（编辑器与代码），为空则使用系统等宽栈 */
   monoFont?: string
+  /** 编辑模式网格背景 */
+  gridBackground?: boolean
 }
 
 export interface ThemeDefinition {
@@ -91,6 +93,10 @@ export function applyThemePrefs(prefs: ThemePrefs): void {
     const mdClass = `md-${prefs.mdStyle || 'standard'}`
     c.classList.add(mdClass)
 
+    // 网格背景
+    if (prefs.gridBackground) c.classList.add('edit-grid-bg')
+    else c.classList.remove('edit-grid-bg')
+
     // 触发主题变更事件（扩展可监听）
     try {
       const ev = new CustomEvent('flymd:theme:changed', { detail: { prefs } })
@@ -120,6 +126,7 @@ export function loadThemePrefs(): ThemePrefs {
       themeId: obj.themeId || undefined,
       bodyFont: (typeof obj.bodyFont === 'string') ? obj.bodyFont : undefined,
       monoFont: (typeof obj.monoFont === 'string') ? obj.monoFont : undefined,
+      gridBackground: (typeof obj.gridBackground === 'boolean') ? obj.gridBackground : false,
     }
   } catch { return { ...DEFAULT_PREFS } }
 }
@@ -206,6 +213,12 @@ function createPanel(): HTMLDivElement {
     <div class="theme-section">
       <div class="theme-title">编辑背景</div>
       <div class="theme-swatches" data-target="edit"></div>
+      <div class="theme-option">
+        <label class="theme-checkbox-label">
+          <input type="checkbox" id="grid-bg-toggle" class="theme-checkbox" />
+          <span>网格背景</span>
+        </label>
+      </div>
     </div>
     <div class="theme-section">
       <div class="theme-title">阅读背景</div>
@@ -275,6 +288,9 @@ function fillSwatches(panel: HTMLElement, prefs: ThemePrefs) {
     const v = el.dataset.md as MdStyleId
     if (v === prefs.mdStyle) el.classList.add('active'); else el.classList.remove('active')
   })
+  // 网格背景复选框状态
+  const gridToggle = panel.querySelector('#grid-bg-toggle') as HTMLInputElement | null
+  if (gridToggle) gridToggle.checked = !!prefs.gridBackground
 }
 
 export function initThemeUI(): void {
@@ -571,6 +587,18 @@ export function initThemeUI(): void {
         lastSaved = { ...cur }
       }
     })
+
+    // 网格背景切换
+    const gridToggle = panel.querySelector('#grid-bg-toggle') as HTMLInputElement | null
+    if (gridToggle) {
+      gridToggle.addEventListener('change', () => {
+        const cur = loadThemePrefs()
+        cur.gridBackground = gridToggle.checked
+        saveThemePrefs(cur)
+        applyThemePrefs(cur)
+        lastSaved = { ...cur }
+      })
+    }
 
     // 主题按钮：切换面板显隐
     const btn = document.getElementById('btn-theme') as HTMLDivElement | null
