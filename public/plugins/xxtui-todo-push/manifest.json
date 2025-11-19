@@ -1,0 +1,10 @@
+{
+  "id": "xxtui-todo-push",
+  "name": "xxtui 待办推送（beta）",
+  "version": "0.1.0-beta",
+  "author": "flyMD",
+  "description": "扫描当前文档中的未完成待办并推送到 xxtui（beta）",
+  "homepage": "https://github.com/flyhunterl/flymd",
+  "main": "main.js"
+}
+

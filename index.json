@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2025-10-31T13:14:39Z",
+  "updatedAt": "2025-11-19T12:00:00Z",
   "ttlSeconds": 3600,
   "items": [
     {
@@ -35,6 +35,17 @@
       "id": "batch-pdf",
       "install": {
         "ref": "https://raw.githubusercontent.com/flyhunterl/flymd/main/public/plugins/batch-pdf/manifest.json",
+        "type": "manifest"
+      }
+    },
+    {
+      "homepage": "https://github.com/flyhunterl/flymd",
+      "name": "xxtui 待办推送（beta）",
+      "description": "扫描当前文档中的未完成待办并推送到 xxtui（beta）",
+      "author": "飞速MarkDown",
+      "id": "xxtui-todo-push",
+      "install": {
+        "ref": "https://raw.githubusercontent.com/flyhunterl/flymd/main/public/plugins/xxtui-todo-push/manifest.json",
         "type": "manifest"
       }
     }
