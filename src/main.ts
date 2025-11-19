@@ -7276,15 +7276,17 @@ function bindEvents() {
 
     // 延迟初始化扩展系统和 WebDAV（使用 requestIdleCallback）
     const ric: any = (window as any).requestIdleCallback || ((cb: any) => setTimeout(cb, 100))
-    ric(async () => {
-      try {
-        // 扩展：初始化目录并激活已启用扩展（此时 Store 已就绪）
-        await ensurePluginsDir()
-        await loadAndActivateEnabledPlugins()
-      } catch (e) {
-        console.warn('[Extensions] 延迟初始化失败:', e)
-      }
-    })
+      ric(async () => {
+        try {
+          // 扩展：初始化目录并激活已启用扩展（此时 Store 已就绪）
+          await ensurePluginsDir()
+          await loadAndActivateEnabledPlugins()
+          // 启动后后台检查一次扩展更新（仅提示，不自动更新）
+          await checkPluginUpdatesOnStartup()
+        } catch (e) {
+          console.warn('[Extensions] 延迟初始化失败:', e)
+        }
+      })
     ric(async () => {
       try {
         setOnSyncComplete(async () => {
@@ -8059,8 +8061,8 @@ async function fetchRemoteManifestVersion(url: string): Promise<string | null> {
   }
 }
 
-// ���ػ�װ����չ���µ�״̬��ֻ���������µİ汾
-async function getPluginUpdateStates(list: InstalledPlugin[], market: InstallableItem[]): Promise<Record<string, PluginUpdateState>> {
+  // 读取已安装扩展的“可更新”状态（只返回有新版本的）
+  async function getPluginUpdateStates(list: InstalledPlugin[], market: InstallableItem[]): Promise<Record<string, PluginUpdateState>> {
   const res: Record<string, PluginUpdateState> = {}
   if (!list.length) return res
   const tasks: Promise<void>[] = []
@@ -8076,8 +8078,64 @@ async function getPluginUpdateStates(list: InstalledPlugin[], market: Installabl
     })())
   }
   await Promise.all(tasks)
-  return res
-}
+    return res
+  }
+
+  // 启动时扩展更新检查：仅在应用启动后后台检查一次
+  async function checkPluginUpdatesOnStartup(): Promise<void> {
+    try {
+      if (!store) return
+      // 只在有安装的扩展且带版本号时才进行检查
+      const installedMap = await getInstalledPlugins()
+      const installedArr = Object.values(installedMap).filter((p) => !!p && !!p.version)
+      if (!installedArr.length) return
+
+      let marketItems: InstallableItem[] = []
+      try {
+        marketItems = await loadInstallablePlugins(false)
+      } catch {
+        marketItems = FALLBACK_INSTALLABLES.slice()
+      }
+      if (!marketItems.length) return
+
+      const updateMap = await getPluginUpdateStates(installedArr, marketItems)
+      const ids = Object.keys(updateMap || {})
+      if (!ids.length) return
+
+      const updatedPlugins = ids
+        .map((id) => installedMap[id])
+        .filter((p): p is InstalledPlugin => !!p)
+
+      if (!updatedPlugins.length) return
+
+      // 构造提示文案（保持多语言）
+      const names = updatedPlugins.map((p) => String(p.name || p.id || '')).filter(Boolean)
+      if (!names.length) return
+
+      let msg = ''
+      if (names.length === 1) {
+        msg = t('ext.update.notice.single')
+          .replace('{name}', names[0])
+      } else {
+        const joined = names.slice(0, 3).join('、')
+        msg = t('ext.update.notice.multi')
+          .replace('{count}', String(names.length))
+          .replace('{names}', joined + (names.length > 3 ? '…' : ''))
+      }
+
+      try {
+        const el = document.getElementById('sync-status')
+        if (el) {
+          el.textContent = msg
+          setTimeout(() => {
+            try { if (el && el.textContent === msg) el.textContent = '' } catch {}
+          }, 5000)
+        }
+      } catch {}
+    } catch (e) {
+      console.warn('[Extensions] 启动扩展更新检查失败', e)
+    }
+  }
 
 // ���°�װָ��������չ���������״̬
 async function updateInstalledPlugin(p: InstalledPlugin, info: PluginUpdateState): Promise<InstalledPlugin> {
