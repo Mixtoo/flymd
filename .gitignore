@@ -85,3 +85,14 @@ KATEX_DEBUG_GUIDE.md
 OPTIMIZATION_SUMMARY.md
 PHASE2_OPTIMIZATION.md
 问题.md
+generate_program_pdf.py
+verify_pdf.py
+
+# 软件著作权申报材料（敏感信息）
+申报/
+generate_doc_pdf_v2.py
+generate_name_pdf.py
+convert_svg_to_png.py
+temp.pdf
+generate_doc_pdf.py
+verify_doc_pdf.py
