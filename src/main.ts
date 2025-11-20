@@ -704,6 +704,154 @@ let _extOverlayEl: HTMLDivElement | null = null
 let _extListHost: HTMLDivElement | null = null
 let _extInstallInput: HTMLInputElement | null = null
 
+// 插件下拉菜单管理
+const PLUGIN_DROPDOWN_OVERLAY_ID = 'plugin-dropdown-overlay'
+const PLUGIN_DROPDOWN_PANEL_ID = 'plugin-dropdown-panel'
+let pluginDropdownKeyHandler: ((e: KeyboardEvent) => void) | null = null
+
+// 移除下拉菜单
+function removePluginDropdown() {
+  try {
+    const overlay = document.getElementById(PLUGIN_DROPDOWN_OVERLAY_ID)
+    if (overlay) overlay.remove()
+    if (pluginDropdownKeyHandler) {
+      document.removeEventListener('keydown', pluginDropdownKeyHandler)
+      pluginDropdownKeyHandler = null
+    }
+  } catch {}
+}
+
+// 渲染菜单项
+function renderPluginMenuItems(items: any[], callbacks: Map<string, () => void>): string {
+  let idCounter = 0
+  const html: string[] = []
+
+  for (const item of items) {
+    if (!item) continue
+
+    // 分隔线
+    if (item.type === 'divider') {
+      html.push('<div class="plugin-menu-divider"></div>')
+      continue
+    }
+
+    // 分组标题
+    if (item.type === 'group') {
+      html.push(`<div class="plugin-menu-group-title">${item.label || ''}</div>`)
+      continue
+    }
+
+    // 普通菜单项
+    const id = `menu-item-${idCounter++}`
+    const disabled = item.disabled ? ' disabled' : ''
+    const note = item.note ? `<span class="plugin-menu-note">${item.note}</span>` : ''
+    html.push(`<button data-id="${id}"${disabled}>${item.label || ''}${note}</button>`)
+
+    // 保存回调
+    if (item.onClick && typeof item.onClick === 'function') {
+      callbacks.set(id, item.onClick)
+    }
+  }
+
+  return html.join('')
+}
+
+// 定位下拉面板
+function positionPluginDropdown(panel: HTMLElement, anchor: HTMLElement) {
+  try {
+    const anchorRect = anchor.getBoundingClientRect()
+    const viewportW = window.innerWidth || 1280
+    const viewportH = window.innerHeight || 720
+    const padding = 12
+
+    panel.style.opacity = '0'
+    panel.style.transform = 'translateY(-4px)'
+
+    requestAnimationFrame(() => {
+      const panelRect = panel.getBoundingClientRect()
+      const panelW = panelRect.width || 220
+      const panelH = panelRect.height || 180
+
+      let left = anchorRect.left
+      let top = anchorRect.bottom + 4
+
+      // 防止溢出视口
+      if (left + panelW + padding > viewportW) {
+        left = viewportW - panelW - padding
+      }
+      if (left < padding) left = padding
+      if (top + panelH + padding > viewportH) {
+        top = anchorRect.top - panelH - 4
+      }
+      if (top < padding) top = padding
+
+      panel.style.left = left + 'px'
+      panel.style.top = top + 'px'
+      panel.style.opacity = '1'
+      panel.style.transform = 'translateY(0)'
+    })
+  } catch {}
+}
+
+// 显示下拉菜单
+function showPluginDropdown(anchor: HTMLElement, items: any[]) {
+  try {
+    removePluginDropdown()
+
+    const overlay = document.createElement('div')
+    overlay.id = PLUGIN_DROPDOWN_OVERLAY_ID
+
+    const callbacks = new Map<string, () => void>()
+    const menuHtml = renderPluginMenuItems(items, callbacks)
+
+    overlay.innerHTML = `<div id="${PLUGIN_DROPDOWN_PANEL_ID}">${menuHtml}</div>`
+    document.body.appendChild(overlay)
+
+    const panel = document.getElementById(PLUGIN_DROPDOWN_PANEL_ID)
+    if (panel) positionPluginDropdown(panel, anchor)
+
+    // 点击外部区域关闭
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) removePluginDropdown()
+    })
+
+    // 处理菜单项点击
+    const buttons = overlay.querySelectorAll('button[data-id]')
+    buttons.forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault()
+        ev.stopPropagation()
+        const id = btn.getAttribute('data-id')
+        if (!id) return
+        removePluginDropdown()
+        const callback = callbacks.get(id)
+        if (callback) {
+          try { callback() } catch (e) { console.error(e) }
+        }
+      })
+    })
+
+    // ESC 键关闭
+    pluginDropdownKeyHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') removePluginDropdown()
+    }
+    document.addEventListener('keydown', pluginDropdownKeyHandler)
+  } catch (e) {
+    console.error('显示插件下拉菜单失败', e)
+    removePluginDropdown()
+  }
+}
+
+// 切换下拉菜单
+function togglePluginDropdown(anchor: HTMLElement, items: any[]) {
+  const overlay = document.getElementById(PLUGIN_DROPDOWN_OVERLAY_ID)
+  if (overlay) {
+    removePluginDropdown()
+  } else {
+    showPluginDropdown(anchor, items)
+  }
+}
+
 // 可安装扩展索引项（最小影响：仅用于渲染“可安装的扩展”区块）
 type InstallableItem = {
   id: string
@@ -8136,7 +8284,7 @@ async function activatePlugin(p: InstalledPlugin): Promise<void> {
       },
       set: async (key: string, value: any) => { try { if (!store) return; const all = (await store.get('plugin:' + p.id)) as any || {}; all[key] = value; await store.set('plugin:' + p.id, all); await store.save() } catch {} }
     },
-    addMenuItem: (opt: { label: string; title?: string; onClick?: () => void }) => {
+    addMenuItem: (opt: { label: string; title?: string; onClick?: () => void; children?: any[] }) => {
       try {
         const bar = document.querySelector('.menubar') as HTMLDivElement | null
         if (!bar) return () => {}
@@ -8146,7 +8294,24 @@ async function activatePlugin(p: InstalledPlugin): Promise<void> {
         el.className = 'menu-item'
         el.textContent = (p.id === 'typecho-publisher-flymd') ? '发布' : (opt.label || '扩展')
         if (opt.title) el.title = opt.title
-        el.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); try { opt.onClick && opt.onClick() } catch (e) { console.error(e) } })
+
+        // 支持下拉菜单
+        if (opt.children && opt.children.length > 0) {
+          el.addEventListener('click', (ev) => {
+            ev.preventDefault()
+            ev.stopPropagation()
+            try {
+              togglePluginDropdown(el, opt.children || [])
+            } catch (e) { console.error(e) }
+          })
+        } else {
+          el.addEventListener('click', (ev) => {
+            ev.preventDefault()
+            ev.stopPropagation()
+            try { opt.onClick && opt.onClick() } catch (e) { console.error(e) }
+          })
+        }
+
         bar.appendChild(el)
         return () => { try { el.remove() } catch {} }
       } catch { return () => {} }

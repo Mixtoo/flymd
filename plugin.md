@@ -201,7 +201,9 @@ await context.storage.set('key', null);
 
 ### context.addMenuItem
 
-在菜单栏添加自定义菜单项。
+在菜单栏添加自定义菜单项，支持简单菜单项和下拉菜单。
+
+#### 简单菜单项
 
 ```javascript
 const removeMenuItem = context.addMenuItem({
@@ -217,7 +219,107 @@ const removeMenuItem = context.addMenuItem({
 // removeMenuItem();
 ```
 
-**注意：** 每个插件只能添加一个菜单项。
+#### 下拉菜单
+
+通过 `children` 参数可以创建下拉菜单：
+
+```javascript
+context.addMenuItem({
+  label: '我的工具',
+  title: '工具菜单',
+  children: [
+    {
+      label: '选项 1',
+      onClick: () => {
+        context.ui.notice('选项 1 被点击');
+      }
+    },
+    {
+      label: '选项 2',
+      onClick: () => {
+        context.ui.notice('选项 2 被点击');
+      }
+    }
+  ]
+});
+```
+
+#### 带分组和分隔线的下拉菜单
+
+```javascript
+context.addMenuItem({
+  label: '待办',
+  children: [
+    // 分组标题
+    {
+      type: 'group',
+      label: '推送'
+    },
+    {
+      label: '全部',
+      note: '含已完成/未完成',  // 右侧注释
+      onClick: () => pushAll()
+    },
+    {
+      label: '已完成',
+      onClick: () => pushDone()
+    },
+    {
+      label: '未完成',
+      onClick: () => pushTodo()
+    },
+    // 分隔线
+    {
+      type: 'divider'
+    },
+    {
+      type: 'group',
+      label: '提醒'
+    },
+    {
+      label: '创建提醒',
+      note: '@时间',
+      onClick: () => createReminder()
+    },
+    // 禁用状态
+    {
+      label: '高级功能',
+      disabled: true,
+      note: '敬请期待'
+    }
+  ]
+});
+```
+
+#### 菜单项配置说明
+
+**普通菜单项：**
+- `label`: 菜单文本（必填）
+- `onClick`: 点击回调函数（必填）
+- `note`: 右侧注释文本（可选）
+- `disabled`: 是否禁用（可选，默认 `false`）
+
+**分组标题：**
+```javascript
+{
+  type: 'group',
+  label: '分组名称'
+}
+```
+
+**分隔线：**
+```javascript
+{
+  type: 'divider'
+}
+```
+
+**注意：**
+- 每个插件只能添加一个菜单项
+- 如果提供了 `children`，则不需要提供 `onClick`
+- 下拉菜单会自动定位，避免超出视口边界
+- 支持 ESC 键关闭下拉菜单
+- 点击外部区域可关闭下拉菜单
 
 ### context.ui.notice
 
