@@ -693,6 +693,29 @@ let store: Store | null = null
 // 插件管理（简单实现）
 type PluginManifest = { id: string; name?: string; version?: string; author?: string; description?: string; main?: string }
 type InstalledPlugin = { id: string; name?: string; version?: string; enabled?: boolean; dir: string; main: string; builtin?: boolean; description?: string; manifestUrl?: string }
+
+// 右键菜单相关类型
+type ContextMenuContext = {
+  selectedText: string
+  cursorPosition: number
+  mode: 'edit' | 'preview' | 'wysiwyg'
+  filePath: string | null
+}
+type ContextMenuItemConfig = {
+  label: string
+  icon?: string
+  condition?: (ctx: ContextMenuContext) => boolean
+  onClick?: (ctx: ContextMenuContext) => void
+  children?: ContextMenuItemConfig[]
+  divider?: boolean
+  disabled?: boolean
+  type?: 'group' | 'divider'
+  note?: string
+}
+type PluginContextMenuItem = {
+  pluginId: string
+  config: ContextMenuItemConfig
+}
 const PLUGINS_DIR = 'flymd/plugins'
 const builtinPlugins: InstalledPlugin[] = [
   { id: 'uploader-s3', name: '图床 (S3/R2)', version: 'builtin', enabled: undefined, dir: '', main: '', builtin: true, description: '粘贴/拖拽图片自动上传，支持 S3/R2 直连，使用设置中的凭据。' },
@@ -703,6 +726,11 @@ const pluginMenuAdded = new Map<string, boolean>() // 限制每个插件仅添�
 let _extOverlayEl: HTMLDivElement | null = null
 let _extListHost: HTMLDivElement | null = null
 let _extInstallInput: HTMLInputElement | null = null
+
+// 右键菜单管理
+const pluginContextMenuItems: PluginContextMenuItem[] = [] // 所有插件注册的右键菜单项
+let _contextMenuEl: HTMLDivElement | null = null // 当前显示的右键菜单元素
+let _contextMenuKeyHandler: ((e: KeyboardEvent) => void) | null = null
 
 // 插件下拉菜单管理
 const PLUGIN_DROPDOWN_OVERLAY_ID = 'plugin-dropdown-overlay'
@@ -852,7 +880,221 @@ function togglePluginDropdown(anchor: HTMLElement, items: any[]) {
   }
 }
 
-// 可安装扩展索引项（最小影响：仅用于渲染“可安装的扩展”区块）
+// ============ 右键菜单系统 ============
+
+// 移除右键菜单
+function removeContextMenu() {
+  try {
+    if (_contextMenuEl) {
+      _contextMenuEl.remove()
+      _contextMenuEl = null
+    }
+    if (_contextMenuKeyHandler) {
+      document.removeEventListener('keydown', _contextMenuKeyHandler)
+      _contextMenuKeyHandler = null
+    }
+  } catch {}
+}
+
+// 构建右键菜单上下文
+function buildContextMenuContext(): ContextMenuContext {
+  try {
+    const sel = editor.selectionStart || 0
+    const end = editor.selectionEnd || 0
+    const text = editor.value.slice(Math.min(sel, end), Math.max(sel, end))
+    return {
+      selectedText: text,
+      cursorPosition: sel,
+      mode: wysiwygV2Active ? 'wysiwyg' : mode,
+      filePath: currentFilePath
+    }
+  } catch {
+    return {
+      selectedText: '',
+      cursorPosition: 0,
+      mode: mode,
+      filePath: currentFilePath
+    }
+  }
+}
+
+// 渲染右键菜单项
+function renderContextMenuItem(item: ContextMenuItemConfig, ctx: ContextMenuContext, callbacks: Map<string, () => void>, idCounter: { value: number }): string {
+  if (!item) return ''
+
+  // 分隔线
+  if (item.divider || item.type === 'divider') {
+    return '<div class="context-menu-divider"></div>'
+  }
+
+  // 分组标题
+  if (item.type === 'group') {
+    return `<div class="context-menu-group">${item.label || ''}</div>`
+  }
+
+  // 检查条件
+  if (item.condition && typeof item.condition === 'function') {
+    try {
+      if (!item.condition(ctx)) return ''
+    } catch {
+      return ''
+    }
+  }
+
+  // 子菜单
+  if (item.children && item.children.length > 0) {
+    const id = `ctx-menu-${idCounter.value++}`
+    const icon = item.icon ? `<span class="context-menu-icon">${item.icon}</span>` : ''
+    const note = item.note ? `<span class="context-menu-note">${item.note}</span>` : ''
+    const disabled = item.disabled ? ' disabled' : ''
+
+    let childrenHtml = ''
+    for (const child of item.children) {
+      childrenHtml += renderContextMenuItem(child, ctx, callbacks, idCounter)
+    }
+
+    return `
+      <div class="context-menu-item has-children${disabled}" data-id="${id}">
+        ${icon}<span class="context-menu-label">${item.label || ''}</span>${note}
+        <span class="context-menu-arrow">▸</span>
+        <div class="context-menu-submenu">${childrenHtml}</div>
+      </div>
+    `
+  }
+
+  // 普通菜单项
+  const id = `ctx-menu-${idCounter.value++}`
+  const icon = item.icon ? `<span class="context-menu-icon">${item.icon}</span>` : ''
+  const note = item.note ? `<span class="context-menu-note">${item.note}</span>` : ''
+  const disabled = item.disabled ? ' disabled' : ''
+
+  if (item.onClick && typeof item.onClick === 'function') {
+    callbacks.set(id, () => item.onClick!(ctx))
+  }
+
+  return `
+    <div class="context-menu-item${disabled}" data-id="${id}">
+      ${icon}<span class="context-menu-label">${item.label || ''}</span>${note}
+    </div>
+  `
+}
+
+// 显示右键菜单
+function showContextMenu(x: number, y: number, ctx: ContextMenuContext) {
+  try {
+    removeContextMenu()
+
+    // 过滤有效的菜单项
+    const validItems: ContextMenuItemConfig[] = []
+    for (const item of pluginContextMenuItems) {
+      if (!item || !item.config) continue
+      validItems.push(item.config)
+    }
+
+    if (validItems.length === 0) return
+
+    // 创建菜单元素
+    const menu = document.createElement('div')
+    menu.className = 'flymd-context-menu'
+    menu.style.position = 'fixed'
+    menu.style.zIndex = '10000'
+
+    const callbacks = new Map<string, () => void>()
+    const idCounter = { value: 0 }
+    let menuHtml = ''
+
+    for (const item of validItems) {
+      menuHtml += renderContextMenuItem(item, ctx, callbacks, idCounter)
+    }
+
+    menu.innerHTML = menuHtml
+    document.body.appendChild(menu)
+    _contextMenuEl = menu
+
+    // 计算位置，防止超出视口
+    const rect = menu.getBoundingClientRect()
+    const maxX = window.innerWidth - rect.width - 10
+    const maxY = window.innerHeight - rect.height - 10
+
+    menu.style.left = Math.min(x, maxX) + 'px'
+    menu.style.top = Math.min(y, maxY) + 'px'
+
+    // 绑定点击事件
+    menu.querySelectorAll('.context-menu-item[data-id]').forEach((el) => {
+      const id = el.getAttribute('data-id')
+      if (!id) return
+
+      el.addEventListener('click', (e) => {
+        e.stopPropagation()
+        if (el.classList.contains('disabled')) return
+        if (el.classList.contains('has-children')) return // 有子菜单的不执行
+
+        const callback = callbacks.get(id)
+        if (callback) {
+          try {
+            callback()
+          } catch (err) {
+            console.error('右键菜单项执行失败:', err)
+          }
+        }
+        removeContextMenu()
+      })
+    })
+
+    // 点击外部关闭
+    const clickOutside = (e: MouseEvent) => {
+      if (!menu.contains(e.target as Node)) {
+        removeContextMenu()
+        document.removeEventListener('click', clickOutside)
+      }
+    }
+    setTimeout(() => document.addEventListener('click', clickOutside), 0)
+
+    // ESC 键关闭
+    _contextMenuKeyHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        removeContextMenu()
+      }
+    }
+    document.addEventListener('keydown', _contextMenuKeyHandler)
+  } catch (err) {
+    console.error('显示右键菜单失败:', err)
+  }
+}
+
+// 初始化右键菜单监听
+function initContextMenuListener() {
+  try {
+    // 监听编辑器的右键事件
+    editor.addEventListener('contextmenu', (e) => {
+      // 如果有插件注册了右键菜单项，显示自定义菜单
+      if (pluginContextMenuItems.length > 0) {
+        e.preventDefault()
+        const ctx = buildContextMenuContext()
+        showContextMenu(e.clientX, e.clientY, ctx)
+      }
+      // 否则使用浏览器默认右键菜单
+    })
+
+    // 监听预览区域的右键事件
+    const preview = document.querySelector('.preview') as HTMLElement
+    if (preview) {
+      preview.addEventListener('contextmenu', (e) => {
+        if (pluginContextMenuItems.length > 0) {
+          e.preventDefault()
+          const ctx = buildContextMenuContext()
+          showContextMenu(e.clientX, e.clientY, ctx)
+        }
+      })
+    }
+  } catch (err) {
+    console.error('初始化右键菜单监听失败:', err)
+  }
+}
+
+// ============ 右键菜单系统结束 ============
+
+// 可安装扩展索引项（最小影响：仅用于渲染"可安装的扩展"区块）
 type InstallableItem = {
   id: string
   name: string
@@ -7585,6 +7827,7 @@ function bindEvents() {
     refreshTitle()
     refreshStatus()
     bindEvents()  // 🔧 关键：无论存储是否成功，都要绑定事件
+    initContextMenuListener()  // 初始化右键菜单监听
     // 依据当前语言，应用一次 UI 文案（含英文简写，避免侧栏溢出）
     try { applyI18nUi() } catch {}
     try { logInfo('打点:事件绑定完成') } catch {}
@@ -8351,6 +8594,29 @@ async function activatePlugin(p: InstalledPlugin): Promise<void> {
         return [] as string[]
       }
     },
+    addContextMenuItem: (config: ContextMenuItemConfig) => {
+      try {
+        // 注册右键菜单项
+        pluginContextMenuItems.push({
+          pluginId: p.id,
+          config: config
+        })
+
+        // 返回移除函数
+        return () => {
+          try {
+            const index = pluginContextMenuItems.findIndex(
+              item => item.pluginId === p.id && item.config === config
+            )
+            if (index >= 0) {
+              pluginContextMenuItems.splice(index, 1)
+            }
+          } catch {}
+        }
+      } catch {
+        return () => {}
+      }
+    },
   }
   try { (window as any).__pluginCtx__ = (window as any).__pluginCtx__ || {}; (window as any).__pluginCtx__[p.id] = ctx } catch {}
   if (typeof mod?.activate === 'function') {
@@ -8365,6 +8631,14 @@ async function deactivatePlugin(id: string): Promise<void> {
   try { if (typeof mod?.deactivate === 'function') await mod.deactivate() } catch {}
   activePlugins.delete(id)
   try { pluginMenuAdded.delete(id) } catch {}
+  // 移除插件注册的右键菜单项
+  try {
+    for (let i = pluginContextMenuItems.length - 1; i >= 0; i--) {
+      if (pluginContextMenuItems[i]?.pluginId === id) {
+        pluginContextMenuItems.splice(i, 1)
+      }
+    }
+  } catch {}
 }
 
 // ��չ�����������µ�״̬

@@ -321,6 +321,225 @@ context.addMenuItem({
 - 支持 ESC 键关闭下拉菜单
 - 点击外部区域可关闭下拉菜单
 
+### context.addContextMenuItem
+
+在编辑器中注册右键菜单项，支持上下文感知和条件显示。
+
+#### 基本用法
+
+```javascript
+// 注册一个简单的右键菜单项
+const removeItem = context.addContextMenuItem({
+  label: '转换为大写',
+  icon: '🔤',
+  condition: (ctx) => ctx.selectedText.length > 0,  // 仅在有选中文本时显示
+  onClick: (ctx) => {
+    const upperText = ctx.selectedText.toUpperCase();
+    context.replaceRange(
+      context.getSelection().start,
+      context.getSelection().end,
+      upperText
+    );
+    context.ui.notice('已转换为大写', 'ok');
+  }
+});
+
+// 移除菜单项（可选）
+// removeItem();
+```
+
+#### 带子菜单的右键菜单
+
+```javascript
+context.addContextMenuItem({
+  label: '文本工具',
+  icon: '🛠️',
+  children: [
+    {
+      label: '转大写',
+      onClick: (ctx) => {
+        const upper = ctx.selectedText.toUpperCase();
+        context.replaceRange(
+          context.getSelection().start,
+          context.getSelection().end,
+          upper
+        );
+      }
+    },
+    {
+      label: '转小写',
+      onClick: (ctx) => {
+        const lower = ctx.selectedText.toLowerCase();
+        context.replaceRange(
+          context.getSelection().start,
+          context.getSelection().end,
+          lower
+        );
+      }
+    },
+    { type: 'divider' },  // 分隔线
+    {
+      label: '去除空格',
+      onClick: (ctx) => {
+        const trimmed = ctx.selectedText.replace(/\s+/g, '');
+        context.replaceRange(
+          context.getSelection().start,
+          context.getSelection().end,
+          trimmed
+        );
+      }
+    }
+  ]
+});
+```
+
+#### 完整配置示例
+
+```javascript
+context.addContextMenuItem({
+  label: '高级编辑',
+  icon: '✨',
+  children: [
+    // 分组标题
+    {
+      type: 'group',
+      label: '格式转换'
+    },
+    {
+      label: '驼峰命名',
+      note: 'camelCase',
+      condition: (ctx) => ctx.selectedText.length > 0,
+      onClick: (ctx) => {
+        const camelCase = ctx.selectedText
+          .replace(/[-_\s]+(.)?/g, (_, c) => c ? c.toUpperCase() : '');
+        context.replaceRange(
+          context.getSelection().start,
+          context.getSelection().end,
+          camelCase
+        );
+      }
+    },
+    {
+      label: '蛇形命名',
+      note: 'snake_case',
+      condition: (ctx) => ctx.selectedText.length > 0,
+      onClick: (ctx) => {
+        const snakeCase = ctx.selectedText
+          .replace(/([A-Z])/g, '_$1')
+          .replace(/[-\s]+/g, '_')
+          .toLowerCase()
+          .replace(/^_/, '');
+        context.replaceRange(
+          context.getSelection().start,
+          context.getSelection().end,
+          snakeCase
+        );
+      }
+    },
+    { type: 'divider' },
+    {
+      type: 'group',
+      label: '插入'
+    },
+    {
+      label: '插入时间戳',
+      onClick: (ctx) => {
+        const timestamp = new Date().toISOString();
+        context.insertAtCursor(timestamp);
+      }
+    },
+    // 禁用状态
+    {
+      label: 'AI 润色',
+      disabled: true,
+      note: '敬请期待'
+    }
+  ]
+});
+```
+
+#### 上下文对象 (ContextMenuContext)
+
+右键菜单的 `condition` 和 `onClick` 回调函数会接收一个上下文对象：
+
+```javascript
+{
+  selectedText: string,        // 当前选中的文本
+  cursorPosition: number,      // 光标位置
+  mode: 'edit' | 'preview' | 'wysiwyg',  // 当前编辑模式
+  filePath: string | null      // 当前文件路径
+}
+```
+
+#### 配置参数说明
+
+**普通菜单项：**
+- `label`: 菜单文本（必填）
+- `icon`: 图标，支持 emoji（可选）
+- `onClick`: 点击回调函数，接收上下文对象（必填）
+- `condition`: 显示条件函数，返回 `true` 时显示（可选）
+- `note`: 右侧注释文本（可选）
+- `disabled`: 是否禁用（可选，默认 `false`）
+
+**带子菜单：**
+- `label`: 菜单文本（必填）
+- `icon`: 图标（可选）
+- `children`: 子菜单项数组（必填）
+
+**分组标题：**
+```javascript
+{
+  type: 'group',
+  label: '分组名称'
+}
+```
+
+**分隔线：**
+```javascript
+{
+  type: 'divider'
+}
+```
+
+#### 注意事项
+
+- 右键菜单会自动根据视口边界调整位置，防止溢出
+- 支持 ESC 键关闭菜单
+- 点击外部区域可关闭菜单
+- `condition` 函数用于动态控制菜单项的显示
+- 每个扩展可以注册多个右键菜单项
+- 右键菜单仅在有扩展注册时才会覆盖浏览器默认菜单
+
+#### 实际应用示例
+
+```javascript
+// 代码格式化工具
+export function activate(context) {
+  context.addContextMenuItem({
+    label: '格式化代码',
+    icon: '🎨',
+    condition: (ctx) => {
+      // 仅在编辑模式且有选中文本时显示
+      return ctx.mode === 'edit' && ctx.selectedText.length > 0;
+    },
+    onClick: (ctx) => {
+      try {
+        // 尝试格式化 JSON
+        const formatted = JSON.stringify(JSON.parse(ctx.selectedText), null, 2);
+        context.replaceRange(
+          context.getSelection().start,
+          context.getSelection().end,
+          formatted
+        );
+        context.ui.notice('JSON 格式化成功', 'ok');
+      } catch {
+        context.ui.notice('格式化失败，请检查 JSON 语法', 'err');
+      }
+    }
+  });
+}
+```
+
 ### context.ui.notice
 
 显示通知消息。
