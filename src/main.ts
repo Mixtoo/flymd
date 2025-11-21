@@ -692,7 +692,7 @@ let _lastPasteCombo: 'normal' | 'plain' | null = null
 let store: Store | null = null
 // 插件管理（简单实现）
 type PluginManifest = { id: string; name?: string; version?: string; author?: string; description?: string; main?: string; minHostVersion?: string }
-type InstalledPlugin = { id: string; name?: string; version?: string; enabled?: boolean; dir: string; main: string; builtin?: boolean; description?: string; manifestUrl?: string }
+type InstalledPlugin = { id: string; name?: string; version?: string; enabled?: boolean; showInMenuBar?: boolean; dir: string; main: string; builtin?: boolean; description?: string; manifestUrl?: string }
 
 // 右键菜单相关类型
 type ContextMenuContext = {
@@ -729,6 +729,11 @@ const pluginAPIRegistry = new Map<string, PluginAPIRecord>()
 let _extOverlayEl: HTMLDivElement | null = null
 let _extListHost: HTMLDivElement | null = null
 let _extInstallInput: HTMLInputElement | null = null
+
+// 插件菜单管理（统一的"插件"下拉菜单）
+type PluginMenuItem = { pluginId: string; label: string; onClick?: () => void; children?: any[] }
+const pluginsMenuItems = new Map<string, PluginMenuItem>() // 收纳到"插件"菜单的项目
+let _pluginsMenuBtn: HTMLDivElement | null = null // "插件"菜单按钮
 
 // 右键菜单管理
 const pluginContextMenuItems: PluginContextMenuItem[] = [] // 所有插件注册的右键菜单项
@@ -880,6 +885,82 @@ function togglePluginDropdown(anchor: HTMLElement, items: any[]) {
     removePluginDropdown()
   } else {
     showPluginDropdown(anchor, items)
+  }
+}
+
+// ============ 统一插件菜单系统 ============
+
+// 初始化"插件"菜单按钮
+function initPluginsMenu() {
+  try {
+    const bar = document.querySelector('.menubar')
+    if (!bar) return
+
+    // 如果已存在则不重复创建
+    if (_pluginsMenuBtn) return
+
+    // 创建"插件"菜单按钮
+    const pluginsBtn = document.createElement('div')
+    pluginsBtn.className = 'menu-item'
+    pluginsBtn.textContent = '插件'
+    pluginsBtn.title = '扩展插件菜单'
+    pluginsBtn.style.display = 'none' // 默认隐藏，有插件时才显示
+
+    // 点击展开下拉菜单
+    pluginsBtn.addEventListener('click', (ev) => {
+      ev.preventDefault()
+      ev.stopPropagation()
+      try {
+        // 构建菜单项列表
+        const items = Array.from(pluginsMenuItems.values()).map(item => ({
+          label: item.label,
+          onClick: item.onClick,
+          children: item.children
+        }))
+        togglePluginDropdown(pluginsBtn, items)
+      } catch (e) { console.error(e) }
+    })
+
+    // 插入到扩展按钮之前
+    const extBtn = Array.from(bar.querySelectorAll('.menu-item')).find(el => el.textContent?.includes('扩展'))
+    if (extBtn) {
+      bar.insertBefore(pluginsBtn, extBtn)
+    } else {
+      bar.appendChild(pluginsBtn)
+    }
+
+    _pluginsMenuBtn = pluginsBtn
+  } catch (e) {
+    console.error('初始化插件菜单失败', e)
+  }
+}
+
+// 添加到插件菜单
+function addToPluginsMenu(pluginId: string, config: { label: string; onClick?: () => void; children?: any[] }) {
+  pluginsMenuItems.set(pluginId, {
+    pluginId,
+    label: config.label,
+    onClick: config.onClick,
+    children: config.children
+  })
+  updatePluginsMenuButton()
+}
+
+// 从插件菜单移除
+function removeFromPluginsMenu(pluginId: string) {
+  pluginsMenuItems.delete(pluginId)
+  updatePluginsMenuButton()
+}
+
+// 更新插件菜单按钮显示状态
+function updatePluginsMenuButton() {
+  if (!_pluginsMenuBtn) return
+
+  // 有菜单项时显示，无菜单项时隐藏
+  if (pluginsMenuItems.size > 0) {
+    _pluginsMenuBtn.style.display = ''
+  } else {
+    _pluginsMenuBtn.style.display = 'none'
   }
 }
 
@@ -7887,6 +7968,8 @@ function bindEvents() {
         try {
           // 扩展：初始化目录并激活已启用扩展（此时 Store 已就绪）
           await ensurePluginsDir()
+          // 初始化统一的"插件"菜单按钮
+          initPluginsMenu()
           await loadAndActivateEnabledPlugins()
           // 启动后后台检查一次扩展更新（仅提示，不自动更新）
           await checkPluginUpdatesOnStartup()
@@ -8574,6 +8657,7 @@ async function installPluginFromGit(inputRaw: string, opt?: { enabled?: boolean 
     name: manifest.name,
     version: manifest.version,
     enabled,
+    showInMenuBar: false, // 新安装的插件默认收纳到"插件"菜单
     dir,
     main: mainRel,
     description: manifest.description,
@@ -8615,34 +8699,48 @@ async function activatePlugin(p: InstalledPlugin): Promise<void> {
     },
     addMenuItem: (opt: { label: string; title?: string; onClick?: () => void; children?: any[] }) => {
       try {
-        const bar = document.querySelector('.menubar') as HTMLDivElement | null
-        if (!bar) return () => {}
         if (pluginMenuAdded.get(p.id)) return () => {}
         pluginMenuAdded.set(p.id, true)
-        const el = document.createElement('div')
-        el.className = 'menu-item'
-        el.textContent = (p.id === 'typecho-publisher-flymd') ? '发布' : (opt.label || '扩展')
-        if (opt.title) el.title = opt.title
 
-        // 支持下拉菜单
-        if (opt.children && opt.children.length > 0) {
-          el.addEventListener('click', (ev) => {
-            ev.preventDefault()
-            ev.stopPropagation()
-            try {
-              togglePluginDropdown(el, opt.children || [])
-            } catch (e) { console.error(e) }
-          })
+        // 检查是否独立显示在菜单栏
+        if (p.showInMenuBar) {
+          // 独立显示：添加到菜单栏（原有逻辑）
+          const bar = document.querySelector('.menubar') as HTMLDivElement | null
+          if (!bar) return () => {}
+
+          const el = document.createElement('div')
+          el.className = 'menu-item'
+          el.textContent = (p.id === 'typecho-publisher-flymd') ? '发布' : (opt.label || '扩展')
+          if (opt.title) el.title = opt.title
+
+          // 支持下拉菜单
+          if (opt.children && opt.children.length > 0) {
+            el.addEventListener('click', (ev) => {
+              ev.preventDefault()
+              ev.stopPropagation()
+              try {
+                togglePluginDropdown(el, opt.children || [])
+              } catch (e) { console.error(e) }
+            })
+          } else {
+            el.addEventListener('click', (ev) => {
+              ev.preventDefault()
+              ev.stopPropagation()
+              try { opt.onClick && opt.onClick() } catch (e) { console.error(e) }
+            })
+          }
+
+          bar.appendChild(el)
+          return () => { try { el.remove() } catch {} }
         } else {
-          el.addEventListener('click', (ev) => {
-            ev.preventDefault()
-            ev.stopPropagation()
-            try { opt.onClick && opt.onClick() } catch (e) { console.error(e) }
+          // 收纳到"插件"菜单
+          addToPluginsMenu(p.id, {
+            label: opt.label || '扩展',
+            onClick: opt.onClick,
+            children: opt.children
           })
+          return () => { removeFromPluginsMenu(p.id) }
         }
-
-        bar.appendChild(el)
-        return () => { try { el.remove() } catch {} }
       } catch { return () => {} }
     },
     ui: {
@@ -9101,6 +9199,38 @@ async function refreshExtensionsUI(): Promise<void> {
         })
         actions.appendChild(btnSet)
       }
+
+      // 独立显示开关
+      const showToggleLabel = document.createElement('label')
+      showToggleLabel.className = 'ext-show-toggle'
+      showToggleLabel.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;margin-right:8px'
+      const showToggleCheckbox = document.createElement('input')
+      showToggleCheckbox.type = 'checkbox'
+      showToggleCheckbox.checked = !!p.showInMenuBar
+      showToggleCheckbox.style.cursor = 'pointer'
+      showToggleCheckbox.addEventListener('change', async (e) => {
+        try {
+          const checked = (e.target as HTMLInputElement).checked
+          p.showInMenuBar = checked
+          installedMap[p.id] = p
+          await setInstalledPlugins(installedMap)
+          // 重新激活插件以应用变更
+          if (p.enabled) {
+            await deactivatePlugin(p.id)
+            await activatePlugin(p)
+          }
+          pluginNotice(checked ? '已设置为独立显示' : '已收纳到插件菜单', 'ok', 1500)
+        } catch (e) {
+          showError('切换显示模式失败', e)
+        }
+      })
+      const showToggleText = document.createElement('span')
+      showToggleText.textContent = '独立显示'
+      showToggleText.style.fontSize = '12px'
+      showToggleLabel.appendChild(showToggleCheckbox)
+      showToggleLabel.appendChild(showToggleText)
+      actions.appendChild(showToggleLabel)
+
       const btnToggle = document.createElement('button'); btnToggle.className = 'btn'; btnToggle.textContent = p.enabled ? t('ext.toggle.disable') : t('ext.toggle.enable')
       btnToggle.addEventListener('click', async () => {
         try { p.enabled = !p.enabled; installedMap[p.id] = p; await setInstalledPlugins(installedMap); if (p.enabled) await activatePlugin(p); else await deactivatePlugin(p.id); await refreshExtensionsUI() } catch (e) { showError(t('ext.toggle.fail'), e) }
@@ -9286,6 +9416,19 @@ async function loadAndActivateEnabledPlugins(): Promise<void> {
   try {
     const map = await getInstalledPlugins()
     const toEnable = Object.values(map).filter((p) => p.enabled)
+
+    // 向后兼容：为旧插件设置默认 showInMenuBar = true
+    let needSave = false
+    for (const p of toEnable) {
+      if (p.showInMenuBar === undefined) {
+        p.showInMenuBar = true // 旧插件默认独立显示，保持原有行为
+        needSave = true
+      }
+    }
+    if (needSave) {
+      await setInstalledPlugins(map)
+    }
+
     for (const p of toEnable) {
       try { await activatePlugin(p) } catch (e) { console.warn('插件激活失败', p.id, e) }
     }
