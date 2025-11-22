@@ -9270,30 +9270,6 @@ async function refreshExtensionsUI(): Promise<void> {
       const desc = document.createElement('div'); desc.className = 'ext-desc'; desc.textContent = p.description || p.dir
       meta.appendChild(name); meta.appendChild(desc)
       const actions = document.createElement('div'); actions.className = 'ext-actions'
-      if (p.enabled) {
-        const btnSet = document.createElement('button'); btnSet.className = 'btn'; btnSet.textContent = t('ext.settings')
-        btnSet.addEventListener('click', async () => {
-          try {
-            const mod = activePlugins.get(p.id)
-            const http = await getHttpClient()
-            const ctx = {
-              http,
-              invoke,
-              storage: {
-                get: async (key: string) => { try { if (!store) return null; const all = (await store.get('plugin:' + p.id)) as any || {}; return all[key] } catch { return null } },
-                set: async (key: string, value: any) => { try { if (!store) return; const all = (await store.get('plugin:' + p.id)) as any || {}; all[key] = value; await store.set('plugin:' + p.id, all); await store.save() } catch {} }
-              },
-              ui: { notice: (msg: string, level?: 'ok' | 'err', ms?: number) => pluginNotice(msg, level, ms), confirm: async (m: string) => { try { return await confirmNative(m) } catch { return false } } },
-              getEditorValue: () => editor.value,
-              setEditorValue: (v: string) => { try { editor.value = v; dirty = true; refreshTitle(); refreshStatus(); if (mode === 'preview') { void renderPreview() } else if (wysiwyg) { scheduleWysiwygRender() } } catch {} },
-            }
-            if (mod && typeof mod.openSettings === 'function') { await mod.openSettings(ctx) }
-            else pluginNotice(t('ext.settings.notProvided'), 'err', 1600)
-          } catch (e) { showError(t('ext.settings.openFail'), e) }
-        })
-        actions.appendChild(btnSet)
-      }
-
       // 独立显示开关
       const showToggleLabel = document.createElement('label')
       showToggleLabel.className = 'ext-show-toggle'
@@ -9324,6 +9300,30 @@ async function refreshExtensionsUI(): Promise<void> {
       showToggleLabel.appendChild(showToggleCheckbox)
       showToggleLabel.appendChild(showToggleText)
       actions.appendChild(showToggleLabel)
+
+      if (p.enabled) {
+        const btnSet = document.createElement('button'); btnSet.className = 'btn'; btnSet.textContent = t('ext.settings')
+        btnSet.addEventListener('click', async () => {
+          try {
+            const mod = activePlugins.get(p.id)
+            const http = await getHttpClient()
+            const ctx = {
+              http,
+              invoke,
+              storage: {
+                get: async (key: string) => { try { if (!store) return null; const all = (await store.get('plugin:' + p.id)) as any || {}; return all[key] } catch { return null } },
+                set: async (key: string, value: any) => { try { if (!store) return; const all = (await store.get('plugin:' + p.id)) as any || {}; all[key] = value; await store.set('plugin:' + p.id, all); await store.save() } catch {} }
+              },
+              ui: { notice: (msg: string, level?: 'ok' | 'err', ms?: number) => pluginNotice(msg, level, ms), confirm: async (m: string) => { try { return await confirmNative(m) } catch { return false } } },
+              getEditorValue: () => editor.value,
+              setEditorValue: (v: string) => { try { editor.value = v; dirty = true; refreshTitle(); refreshStatus(); if (mode === 'preview') { void renderPreview() } else if (wysiwyg) { scheduleWysiwygRender() } } catch {} },
+            }
+            if (mod && typeof mod.openSettings === 'function') { await mod.openSettings(ctx) }
+            else pluginNotice(t('ext.settings.notProvided'), 'err', 1600)
+          } catch (e) { showError(t('ext.settings.openFail'), e) }
+        })
+        actions.appendChild(btnSet)
+      }
 
       const btnToggle = document.createElement('button'); btnToggle.className = 'btn'; btnToggle.textContent = p.enabled ? t('ext.toggle.disable') : t('ext.toggle.enable')
       btnToggle.addEventListener('click', async () => {
