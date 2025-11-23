@@ -2,6 +2,15 @@
 
 [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
 
+## Update v0.3.9
+- Added: Focus Mode — borderless immersive writing experience. Press `Ctrl+Shift+F` to enter, hiding the title bar, menu bar, and all UI elements, leaving only a clean editing area.
+- Added: Sidebar toggle button in Focus Mode to quickly hide/show the document library sidebar.
+- Added: Focus Mode exit button `</>` styled consistently with window control buttons.
+- Added: "Default to WYSIWYG Mode" toggle in theme settings — when enabled, files automatically open in WYSIWYG mode.
+- Improved: Hide status bar (row/column/word count) in WYSIWYG and Reading modes for a cleaner interface.
+- Improved: Edit mode sidebar color now follows the theme for a more unified visual experience.
+- Improved: WYSIWYG mode layout optimization in Focus Mode.
+
 ## Update v0.3.8
 - Added: The AI assistant now offers a "Free model" mode powered by a built-in SiliconFlow small model so newcomers can chat without configuring any API key.
 - Added: A new "Translate" action translates the current selection (or the entire document) into fluent Chinese and inserts the result as quotes/sections.
