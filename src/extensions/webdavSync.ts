@@ -150,8 +150,24 @@ async function syncLog(msg: string): Promise<void> {
       try { return ts.toLocaleString(undefined, { hour12: false }) } catch { return ts.toString() }
     })()
     const enc = new TextEncoder().encode(localTs + ' ' + msg + '\n')
-    const f = await openFileHandle('flymd-sync.log' as any, { write: true, append: true, create: true, baseDir: BaseDirectory.AppLocalData } as any)
-    try { await (f as any).write(enc as any) } finally { try { await (f as any).close() } catch {} }
+    const logPath = 'flymd-sync.log'
+    const logHandle = await openFileHandle(logPath as any, { read: true, write: true, append: true, create: true, baseDir: BaseDirectory.AppLocalData } as any)
+    try {
+      const STAT_THRESHOLD = 5 * 1024 * 1024 // 5MB
+      try {
+        const statInfo = await stat(logPath as any)
+        if (statInfo && typeof statInfo.size === 'number' && statInfo.size > STAT_THRESHOLD) {
+          // 先关闭句柄再截断（Windows 下需要重新打开为写模式）
+          try { await (logHandle as any).close() } catch {}
+          const fresh = await openFileHandle(logPath as any, { write: true, truncate: true, create: true, baseDir: BaseDirectory.AppLocalData } as any)
+          try { await (fresh as any).write(enc as any) } finally { try { await (fresh as any).close() } catch {} }
+          return
+        }
+      } catch {}
+      await (logHandle as any).write(enc as any)
+    } finally {
+      try { await (logHandle as any).close() } catch {}
+    }
   } catch {}
 }
 
