@@ -2,6 +2,11 @@
 
 [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
 
+## Coming Soon
+- WYSIWYG reaches feature parity with extensions so AI Assistant, todo plugins, and other add-ons can read/write inside WYSIWYG without switching back to source mode.
+- The custom context menu bundles built-in actions: toggle the uploader, run a WebDAV sync immediately, and open sync records—plus it keeps the `Shift + Right Click` hint for the native menu.
+- WebDAV sync logs now use local timestamps and automatically truncate when they exceed 5 MB to avoid unbounded growth.
+
 ## Update v0.3.9
 - Added: Focus Mode — borderless immersive writing experience. Press `Ctrl+Shift+F` to enter, hiding the title bar, menu bar, and all UI elements, leaving only a clean editing area.
 - Added: Sidebar toggle button in Focus Mode to quickly hide/show the document library sidebar.
