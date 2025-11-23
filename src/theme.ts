@@ -621,13 +621,19 @@ export function initThemeUI(): void {
       // 初始化开关状态：同步当前 body 上的 focus-mode 类
       focusToggle.checked = document.body.classList.contains('focus-mode')
       // 监听开关变化
-      focusToggle.addEventListener('change', () => {
-        // 触发全局专注模式切换（main.ts 中的 toggleFocusMode）
+      focusToggle.addEventListener('change', async () => {
         const enabled = focusToggle.checked
-        document.body.classList.toggle('focus-mode', enabled)
-        // 通过自定义事件通知 main.ts 保存状态
-        const ev = new CustomEvent('flymd:focus:toggle', { detail: { enabled } })
-        window.dispatchEvent(ev)
+        // 调用 main.ts 中的 toggleFocusMode 函数
+        const toggleFunc = (window as any).flymdToggleFocusMode
+        if (typeof toggleFunc === 'function') {
+          await toggleFunc(enabled)
+        } else {
+          // 降级：如果函数不存在，至少切换 CSS 类
+          document.body.classList.toggle('focus-mode', enabled)
+          // 通过自定义事件通知 main.ts 保存状态
+          const ev = new CustomEvent('flymd:focus:toggle', { detail: { enabled } })
+          window.dispatchEvent(ev)
+        }
       })
       // 监听外部专注模式变化（如快捷键触发），同步开关状态
       const syncFocusToggle = () => {

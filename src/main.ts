@@ -5677,6 +5677,9 @@ async function toggleFocusMode(enabled?: boolean) {
   try { updateFocusSidebarBg() } catch {}
 }
 
+// 将 toggleFocusMode 暴露到全局，供 theme.ts 调用
+;(window as any).flymdToggleFocusMode = toggleFocusMode
+
 async function getFocusMode(): Promise<boolean> {
   try { if (!store) return focusMode; const v = await store.get('focusMode'); return !!v } catch { return focusMode }
 }
