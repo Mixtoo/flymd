@@ -16,7 +16,7 @@ FlyMD is a high-performance Markdown editor in just **7MB**, featuring **WYSIWYG
 
 Cross-platform support for Windows / Linux / macOS. Lightweight yet powerful, built for efficient writing.
 
-![Interface Preview](https://github.com/user-attachments/assets/38f9f007-8a09-4231-9c53-2d3bc6f245be)
+![focus](https://github.com/user-attachments/assets/77b207ab-ee59-4362-ae11-27c95d0732b8)
 
 ## ✨ Core Features
 
@@ -83,13 +83,6 @@ As a manager, you record this week's meeting schedule in your notes
 
 > 💡 Install both "AI Assistant" and "Todo Reminder" extensions from the Extensions market to experience this powerful feature.
 
-## 📸 Interface Preview
-
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/661c3263-d877-4fcf-a77f-69096b42b9d5" width="32%" alt="Edit Mode"/>
-  <img src="https://github.com/user-attachments/assets/1182c443-f93c-4167-bc05-f4cc4b391ab5" width="32%" alt="WYSIWYG Mode"/>
-  <img src="https://github.com/user-attachments/assets/d51945f9-c227-43eb-8105-0bb07d66db52" width="32%" alt="Reading Mode"/>
-</p>
 
 ## 🚀 Getting Started
 
