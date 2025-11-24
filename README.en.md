@@ -185,6 +185,7 @@ Full License: [LICENSE](LICENSE) | Third-Party Components: [THIRD-PARTY-NOTICES.
 - [highlight.js](https://highlightjs.org/) - Code highlighting
 - [KaTeX](https://katex.org/) - Math formula rendering
 - [Mermaid](https://mermaid.js.org/) - Diagram drawing
+- [siliconflow](https://cloud.siliconflow.cn/i/X96CT74a) - Model support
 
 ## 🤝 Contributing
 

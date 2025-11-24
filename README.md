@@ -187,6 +187,7 @@ FlyMD 支持通过扩展插件增强功能：
 - [highlight.js](https://highlightjs.org/) - 代码高亮
 - [KaTeX](https://katex.org/) - 数学公式渲染
 - [Mermaid](https://mermaid.js.org/) - 图表绘制
+- [siliconflow](https://cloud.siliconflow.cn/i/X96CT74a) - 模型支持
 
 ## 🤝 贡献指南
 
