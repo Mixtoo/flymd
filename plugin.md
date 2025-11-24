@@ -917,11 +917,11 @@ export function activate(context) {
   }
 
   // 添加菜单项
-  context.addMenuItem({
-    label: '批处理',
-    children: [
-      {
-        label: '提取所有标题',
+context.addMenuItem({
+  label: '批处理',
+  children: [
+    {
+      label: '提取所有标题',
         onClick: async () => {
           const content = context.getEditorValue();
           const lines = content.split('\n');
@@ -973,6 +973,60 @@ export function activate(context) {
 - 基础功能复用，避免重复实现
 - 插件体积更小，只需实现业务逻辑
 - 生态建设：基础设施插件 + 业务插件分层架构
+
+### AI 助手共享 API（`ai-assistant`）
+
+AI 助手插件从 `0.1.8` 起会通过 `context.registerAPI('ai-assistant', {...})` 暴露自身的 AI 调用能力，其他插件可以像复用基础设施一样直接调用，避免重复保存 API Key。所有方法都返回 `Promise`。
+
+| 方法 | 功能描述 |
+| --- | --- |
+| `callAI(prompt, options?)` | 通用对话接口，`options.system` 可覆写系统提示词，`options.messages` 可传入完整消息数组 |
+| `translate(text)` | 返回翻译后的纯文本，自动遵循 AI 助手中的“免费翻译”设置 |
+| `quickAction(content, action)` | 复用续写/润色/纠错/提纲等快捷动作，`action` 取值同内置功能 |
+| `generateTodos(content)` | 根据文档生成待办，返回 `{ raw, todos }`，其中 `todos` 为 `- [ ]` 列表数组 |
+| `isConfigured()` | 判断当前 AI 是否可用（有 Key 或处于免费模式） |
+| `getConfig()` | 获取 AI 助手的配置快照（浅拷贝），可用于自定义 UI 提示 |
+
+**实战示例：**
+
+```javascript
+// 依赖 AI 助手插件完成续写
+export async function activate(context) {
+  const ai = context.getPluginAPI('ai-assistant');
+
+  if (!ai) {
+    context.ui.notice('需要先安装并启用 AI 助手插件', 'err');
+    return;
+  }
+
+  context.addMenuItem({
+    label: '我的 AI 功能',
+    onClick: async () => {
+      try {
+        const ready = await ai.isConfigured();
+        if (!ready) {
+          context.ui.notice('请先在 AI 助手里配置 API Key 或切换免费模式', 'err');
+          return;
+        }
+
+        const current = context.getEditorValue();
+        const result = await ai.quickAction(current, '续写');
+
+        context.setEditorValue(current + '\n\n' + result);
+        context.ui.notice('续写完成', 'ok');
+      } catch (error) {
+        context.ui.notice('AI 调用失败：' + error.message, 'err');
+      }
+    }
+  });
+}
+```
+
+**提示：**
+
+- 如果插件严格依赖 AI 助手，可在 README/manifest 中写明最低版本要求
+- `generateTodos` 返回的 `todos` 数组已经过滤出合法的 `- [ ]` 行，可直接写回文档或交给其他插件消费
+- 不要直接修改 `getConfig()` 的返回结果，它只是快照，如需更新配置应引导用户到 AI 助手设置界面
 
 ## 主题扩展（Theme）
 

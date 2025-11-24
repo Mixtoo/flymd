@@ -130,6 +130,157 @@ function buildApiHeaders(cfg){
     return headers
   }
 
+function mergeConfig(baseCfg, overrides = {}){
+  if (!overrides || !Object.keys(overrides).length) return baseCfg
+  const merged = { ...baseCfg, ...overrides }
+  merged.limits = { ...(baseCfg?.limits || {}), ...(overrides?.limits || {}) }
+  merged.win = { ...(baseCfg?.win || {}), ...(overrides?.win || {}) }
+  return merged
+}
+
+async function ensureApiConfig(context, overrides = {}){
+  const baseCfg = await loadCfg(context)
+  const finalCfg = overrides ? mergeConfig(baseCfg, overrides) : baseCfg
+  const isFree = isFreeProvider(finalCfg)
+  if (!finalCfg.apiKey && !isFree) throw new Error('AI Key 未配置')
+  return finalCfg
+}
+
+async function performAIRequest(cfg, bodyObj){
+  const url = buildApiUrl(cfg)
+  const headers = buildApiHeaders(cfg)
+  const response = await fetch(url, { method:'POST', headers, body: JSON.stringify(bodyObj) })
+  if (!response.ok) {
+    let message = 'API 调用失败：' + response.status
+    try {
+      const text = await response.text()
+      if (text) message = text
+    } catch {}
+    throw new Error(message)
+  }
+  let data = null
+  try { data = await response.json() } catch {}
+  const text = String(data?.choices?.[0]?.message?.content || '').trim()
+  return { text, data }
+}
+
+function buildTodoPrompt(content){
+  const now = new Date()
+  const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
+  const currentDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  const weekday = weekdays[now.getDay()]
+  const timeContext = `今天是 ${currentDate} ${weekday} ${currentTime}`
+  const system = '你是专业的任务管理助手。基于用户提供的文章内容，提取其中的可执行任务，并生成待办事项列表。'
+  const docSnippet = content.length > 4000 ? content.slice(0, 4000) + '...' : content
+  const prompt = `${timeContext}
+
+请仔细阅读以下文章内容，提取其中提到的或隐含的可执行任务，生成待办事项列表。
+
+文章内容：
+${docSnippet}
+
+要求：
+1. 每个待办事项必须是明确的、可执行的任务
+2. 格式严格遵守：- [ ] 任务描述 @时间
+3. 【重要】时间必须精确到小时，严禁使用"上午"、"下午"、"晚上"等模糊时段词，只能使用以下格式：
+   - @YYYY-MM-DD HH:mm （如 @${currentDate} 14:00）
+   - @明天 14:00 或 @明天 下午2点（必须带具体小时）
+   - @后天 10:00 或 @后天 上午10点（必须带具体小时）
+   - @X小时后 或 @X分钟后（如 @2小时后）
+4. 【关键】必须根据文章内容中的时间语境安排日期：
+   - 如果文章提到"明天要做某事"，则该任务的日期应该是明天
+   - 如果文章提到"下周"、"周末"等，要计算出对应的实际日期
+   - 准备性任务（如"准备行李"）应安排在事件发生前
+5. 今天是 ${currentDate} ${weekday}，以此为基准计算所有日期
+6. 只输出待办事项列表，每行一个，不要其他说明文字
+7. 如果文章中没有明确的任务，可以根据文章主题提取3-5个相关的行动项
+
+示例（假设文章提到"明天出发旅游"）：
+- [ ] 准备行李和证件 @${currentDate} 20:00
+- [ ] 检查车辆状况 @${currentDate} 21:00
+- [ ] 出发前往目的地 @明天 08:00`
+  return { system, prompt }
+}
+
+function extractTodos(todos){
+  return String(todos || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.startsWith('- [ ]') || line.startsWith('- [x]'))
+}
+
+async function callAIForPlugins(context, prompt, options = {}){
+  const text = String(prompt || '').trim()
+  if (!text) throw new Error('Prompt 不能为空')
+  const cfg = await ensureApiConfig(context, options.cfgOverride)
+  const systemMsg = options.system || '你是一个专业助手'
+  const messages = options.messages || [
+    { role: 'system', content: systemMsg },
+    { role: 'user', content: text }
+  ]
+  const body = { model: resolveModelId(cfg), messages, stream: false }
+  const result = await performAIRequest(cfg, body)
+  return result.text
+}
+
+async function translateForPlugins(context, text){
+  const content = String(text || '').trim()
+  if (!content) throw new Error('翻译内容不能为空')
+  const cfg = await loadCfg(context)
+  const override = cfg.alwaysUseFreeTrans ? { provider: 'free' } : {}
+  const finalCfg = await ensureApiConfig(context, override)
+  const prompt = buildPromptPrefix('翻译') + '\n\n' + content
+  const body = {
+    model: resolveModelId(finalCfg),
+    messages: [
+      { role: 'system', content: '你是专业的翻译助手。' },
+      { role: 'user', content: prompt }
+    ],
+    stream: false
+  }
+  const result = await performAIRequest(finalCfg, body)
+  return result.text
+}
+
+async function quickActionForPlugins(context, content, action){
+  const doc = String(content || '').trim()
+  if (!doc) throw new Error('文档内容为空')
+  const prefix = buildPromptPrefix(action)
+  const prompt = `文档上下文：\n\n${doc}\n\n${prefix}`
+  return await callAIForPlugins(context, prompt, {
+    system: '你是专业的中文写作助手，回答要简洁、实用、可直接落地。'
+  })
+}
+
+async function generateTodosForPlugins(context, content){
+  const doc = String(content || '').trim()
+  if (!doc) throw new Error('文档内容为空')
+  const cfg = await ensureApiConfig(context)
+  const { system, prompt } = buildTodoPrompt(doc)
+  const body = {
+    model: resolveModelId(cfg),
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: prompt }
+    ],
+    stream: false
+  }
+  const result = await performAIRequest(cfg, body)
+  const todos = extractTodos(result.text)
+  return { raw: result.text, todos }
+}
+
+async function isAIConfiguredForPlugins(context){
+  const cfg = await loadCfg(context)
+  return !!(cfg.apiKey || isFreeProvider(cfg))
+}
+
+async function getAIConfigSnapshot(context){
+  const cfg = await loadCfg(context)
+  try { return JSON.parse(JSON.stringify(cfg)) } catch { return { ...cfg } }
+}
+
 // 追加一段样式，使用独立命名空间，避免污染宿主
 function ensureCss() {
   if (DOC().getElementById('ai-assist-style')) return
@@ -1169,42 +1320,7 @@ async function translateText(context) {
     context.setEditorValue(GENERATING_MARKER + content)
     context.ui.notice('正在分析文章生成待办事项并创建提醒...', 'ok', 999999)
 
-    // 构造提示词 - 添加当前时间上下文
-    const now = new Date()
-    const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
-    const currentDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-    const weekday = weekdays[now.getDay()]
-    const timeContext = `今天是 ${currentDate} ${weekday} ${currentTime}`
-
-    const system = '你是专业的任务管理助手。基于用户提供的文章内容，提取其中的可执行任务，并生成待办事项列表。'
-    const prompt = `${timeContext}
-
-请仔细阅读以下文章内容，提取其中提到的或隐含的可执行任务，生成待办事项列表。
-
-文章内容：
-${content.length > 4000 ? content.slice(0, 4000) + '...' : content}
-
-要求：
-1. 每个待办事项必须是明确的、可执行的任务
-2. 格式严格遵守：- [ ] 任务描述 @时间
-3. 【重要】时间必须精确到小时，严禁使用"上午"、"下午"、"晚上"等模糊时段词，只能使用以下格式：
-   - @YYYY-MM-DD HH:mm （如 @${currentDate} 14:00）
-   - @明天 14:00 或 @明天 下午2点（必须带具体小时）
-   - @后天 10:00 或 @后天 上午10点（必须带具体小时）
-   - @X小时后 或 @X分钟后（如 @2小时后）
-4. 【关键】必须根据文章内容中的时间语境安排日期：
-   - 如果文章提到"明天要做某事"，则该任务的日期应该是明天
-   - 如果文章提到"下周"、"周末"等，要计算出对应的实际日期
-   - 准备性任务（如"准备行李"）应安排在事件发生前
-5. 今天是 ${currentDate} ${weekday}，以此为基准计算所有日期
-6. 只输出待办事项列表，每行一个，不要其他说明文字
-7. 如果文章中没有明确的任务，可以根据文章主题提取3-5个相关的行动项
-
-示例（假设文章提到"明天出发旅游"）：
-- [ ] 准备行李和证件 @${currentDate} 20:00
-- [ ] 检查车辆状况 @${currentDate} 21:00
-- [ ] 出发前往目的地 @明天 08:00`
+    const { system, prompt } = buildTodoPrompt(content)
 
       const url = buildApiUrl(cfg)
       const headers = buildApiHeaders(cfg)
@@ -1305,42 +1421,7 @@ ${content.length > 4000 ? content.slice(0, 4000) + '...' : content}
     context.setEditorValue(GENERATING_MARKER + content)
     context.ui.notice('正在分析文章生成待办事项...', 'ok', 999999)
 
-    // 构造提示词 - 添加当前时间上下文
-    const now = new Date()
-    const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
-    const currentDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-    const weekday = weekdays[now.getDay()]
-    const timeContext = `今天是 ${currentDate} ${weekday} ${currentTime}`
-
-    const system = '你是专业的任务管理助手。基于用户提供的文章内容，提取其中的可执行任务，并生成待办事项列表。'
-    const prompt = `${timeContext}
-
-请仔细阅读以下文章内容，提取其中提到的或隐含的可执行任务，生成待办事项列表。
-
-文章内容：
-${content.length > 4000 ? content.slice(0, 4000) + '...' : content}
-
-要求：
-1. 每个待办事项必须是明确的、可执行的任务
-2. 格式严格遵守：- [ ] 任务描述 @时间
-3. 【重要】时间必须精确到小时，严禁使用"上午"、"下午"、"晚上"等模糊时段词，只能使用以下格式：
-   - @YYYY-MM-DD HH:mm （如 @${currentDate} 14:00）
-   - @明天 14:00 或 @明天 下午2点（必须带具体小时）
-   - @后天 10:00 或 @后天 上午10点（必须带具体小时）
-   - @X小时后 或 @X分钟后（如 @2小时后）
-4. 【关键】必须根据文章内容中的时间语境安排日期：
-   - 如果文章提到"明天要做某事"，则该任务的日期应该是明天
-   - 如果文章提到"下周"、"周末"等，要计算出对应的实际日期
-   - 准备性任务（如"准备行李"）应安排在事件发生前
-5. 今天是 ${currentDate} ${weekday}，以此为基准计算所有日期
-6. 只输出待办事项列表，每行一个，不要其他说明文字
-7. 如果文章中没有明确的任务，可以根据文章主题提取3-5个相关的行动项
-
-示例（假设文章提到"明天出发旅游"）：
-- [ ] 准备行李和证件 @${currentDate} 20:00
-- [ ] 检查车辆状况 @${currentDate} 21:00
-- [ ] 出发前往目的地 @明天 08:00`
+    const { system, prompt } = buildTodoPrompt(content)
 
       const url = buildApiUrl(cfg)
       const headers = buildApiHeaders(cfg)
@@ -1789,6 +1870,19 @@ export async function activate(context) {
     } catch (e) {
       console.error('AI 助手右键菜单注册失败：', e)
     }
+  }
+
+  try {
+    context.registerAPI('ai-assistant', {
+      callAI: (prompt, options = {}) => callAIForPlugins(context, prompt, options),
+      translate: (text) => translateForPlugins(context, text),
+      quickAction: (content, action) => quickActionForPlugins(context, content, action),
+      generateTodos: (content) => generateTodosForPlugins(context, content),
+      isConfigured: () => isAIConfiguredForPlugins(context),
+      getConfig: () => getAIConfigSnapshot(context)
+    })
+  } catch (e) {
+    console.error('AI 助手 API 注册失败：', e)
   }
 }
 
