@@ -186,11 +186,12 @@
                 "**"
               ]
             },
+            "http:default",
             {
-              "identifier": "http:default",
+              "identifier": "http:allow-fetch",
               "allow": [
-                "https://*",
-                "http://*"
+                { "url": "https://**" },
+                { "url": "http://**" }
               ]
             }
           ]
