@@ -968,7 +968,7 @@ body > .block-menu { display: none !important; }
 .library .lib-toggle-btn { -webkit-app-region: no-drag; cursor: pointer; border: none; background: none; color: var(--fg); font-size: 18px; width: 30px; height: 30px; display: none; align-items: center; justify-content: center; transition: opacity 0.2s, background 0.2s; border-radius: 4px; margin: 0 2px; padding: 0; line-height: 1; font-weight: 300; opacity: 0.5; font-family: monospace; flex-shrink: 0; }
 .library .lib-toggle-btn:hover { opacity: 0.8; background: rgba(127, 127, 127, 0.1); }
 body.focus-mode .library .lib-toggle-btn { display: flex; }
-.lib-float-toggle { -webkit-app-region: no-drag; cursor: pointer; border: none; background: none; color: var(--fg); font-size: 18px; width: 30px; height: 30px; display: none; align-items: center; justify-content: center; transition: opacity 0.2s, background 0.2s; border-radius: 4px; padding: 0; line-height: 1; font-weight: 300; opacity: 0.5; font-family: monospace; position: fixed; top: 12px; left: 12px; z-index: 100; }
+.lib-float-toggle { -webkit-app-region: no-drag; cursor: pointer; border: none; background: none; color: var(--fg); font-size: 18px; width: 30px; height: 30px; display: none; align-items: center; justify-content: center; transition: opacity 0.2s, background 0.2s; border-radius: 4px; padding: 0; line-height: 1; font-weight: 300; opacity: 0.5; font-family: monospace; position: fixed; top: 12px; left: 12px; z-index: 90; }
 .lib-float-toggle.side-left { left: 12px; right: auto; }
 .lib-float-toggle.side-right { left: auto; right: 12px; }
 .lib-float-toggle:hover { opacity: 0.8; background: rgba(127, 127, 127, 0.1); }
@@ -3675,8 +3675,8 @@ textarea:focus {
 #update-overlay .link-actions button.btn-secondary:hover {
   background: rgba(127,127,127,0.08);
 }
-/* 保障标题栏总在侧栏之上，避免滚动时图标越界压住菜单 */
-.titlebar { position: relative; z-index: 20; }
+/* 保障标题栏总在最上层，避免被弹窗遮挡 */
+.titlebar { position: relative; z-index: 100; }
 
 /* === 查找替换面板样式优化 === */
 #find-replace-panel {
