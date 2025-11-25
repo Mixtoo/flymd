@@ -4919,3 +4919,15 @@ body.focus-mode.custom-titlebar-active .focus-trigger-zone {
 body.focus-mode .tabbar {
   display: none;
 }
+
+/* 标签栏存在时，容器高度需要减去标签栏高度 */
+#tabbar-container + .focus-trigger-zone + .container,
+#tabbar-container + .container {
+  height: calc(100% - 36px - 32px); /* 标题栏36px + 标签栏32px */
+}
+
+/* 专注模式下，标签栏隐藏，恢复原高度 */
+body.focus-mode #tabbar-container + .focus-trigger-zone + .container,
+body.focus-mode #tabbar-container + .container {
+  height: calc(100% - 36px);
+}
