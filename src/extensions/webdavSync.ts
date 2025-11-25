@@ -279,6 +279,7 @@ export type WebdavSyncConfig = {
   skipRemoteScanMinutes?: number  // 跳过远程扫描的时间间隔（分钟）
   confirmDeleteRemote?: boolean  // 删除远程文件时是否需要确认（默认true）
   localDeleteStrategy?: 'ask' | 'auto' | 'keep'  // 本地文件删除策略：询问用户/自动删除/保留本地（默认auto）
+  allowHttpInsecure?: boolean  // 是否允许 HTTP 明文 WebDAV
 }
 
 let _store: Store | null = null
@@ -307,6 +308,7 @@ export async function getWebdavSyncConfig(): Promise<WebdavSyncConfig> {
     skipRemoteScanMinutes: Number(raw?.skipRemoteScanMinutes) >= 0 ? Number(raw?.skipRemoteScanMinutes) : 5,  // 默认5分钟
     confirmDeleteRemote: raw?.confirmDeleteRemote !== false,  // 默认true（需要确认）
     localDeleteStrategy: raw?.localDeleteStrategy || 'auto',  // 默认auto（自动删除）
+    allowHttpInsecure: raw?.allowHttpInsecure === true,
   }
   return cfg
 }
@@ -731,8 +733,23 @@ export async function syncNow(reason: SyncReason): Promise<{ uploaded: number; d
       return { uploaded: 0, downloaded: 0, skipped: true }
     }
     updateStatus('正在同步… 准备中')
+    const baseUrl = (cfg.baseUrl || '').trim()
+    if (!baseUrl) {
+      await syncLog('[skip] 未配置 WebDAV Base URL')
+      updateStatus('未配置 WebDAV 地址，已跳过同步')
+      clearStatus(2000)
+      return { uploaded: 0, downloaded: 0, skipped: true }
+    }
+    const isPlainHttp = /^http:\/\//i.test(baseUrl)
+    if (isPlainHttp && !cfg.allowHttpInsecure) {
+      const msg = '安全策略阻止 HTTP 明文传输，请在同步设置中允许 HTTP 后再试'
+      await syncLog('[skip] ' + msg)
+      updateStatus(msg)
+      clearStatus(4000)
+      return { uploaded: 0, downloaded: 0, skipped: true }
+    }
     const auth = { username: cfg.username, password: cfg.password }; await syncLog('[prep] root=' + (await getActiveLibraryRoot()) + ' remoteRoot=' + cfg.rootPath)
-    try { await ensureRemoteDir(cfg.baseUrl, auth, (cfg.rootPath || '').replace(/\/+$/, '')) } catch {}
+    try { await ensureRemoteDir(baseUrl, auth, (cfg.rootPath || '').replace(/\/+$/, '')) } catch {}
 
     // 获取上次同步的元数据
     const lastMeta = await getSyncMetadata()
@@ -809,7 +826,7 @@ export async function syncNow(reason: SyncReason): Promise<{ uploaded: number; d
     }, 2000)
 
     // 扫描远程文件（带目录剪枝）
-    const remoteScan = await listRemoteRecursively(cfg.baseUrl, auth, cfg.rootPath, { lastDirs: lastMeta.dirs || {} })
+    const remoteScan = await listRemoteRecursively(baseUrl, auth, cfg.rootPath, { lastDirs: lastMeta.dirs || {} })
     const remoteIdx = remoteScan.files
 
     // 清除定时器
@@ -1019,9 +1036,9 @@ export async function syncNow(reason: SyncReason): Promise<{ uploaded: number; d
           const relPath = encodePath(act.rel)
           const relDir = relPath.split('/').slice(0, -1).join('/')
           const remoteDir = (cfg.rootPath || '').replace(/\/+$/, '') + (relDir ? '/' + relDir : '')
-          await ensureRemoteDir(cfg.baseUrl, auth, remoteDir)
+          await ensureRemoteDir(baseUrl, auth, remoteDir)
           // 执行 MOVE
-          await moveRemoteFile(cfg.baseUrl, auth, oldRemotePath, newRemotePath)
+          await moveRemoteFile(baseUrl, auth, oldRemotePath, newRemotePath)
           await syncLog('[ok] move-remote ' + (act.oldRel || '') + ' -> ' + act.rel)
           // 更新元数据
           const local = localIdx.get(act.rel)
@@ -1076,8 +1093,8 @@ export async function syncNow(reason: SyncReason): Promise<{ uploaded: number; d
             const relPath = encodePath(act.rel)
             const relDir = relPath.split('/').slice(0, -1).join('/')
             const remoteDir = (cfg.rootPath || '').replace(/\/+$/, '') + (relDir ? '/' + relDir : '')
-            await ensureRemoteDir(cfg.baseUrl, auth, remoteDir)
-            await uploadFile(cfg.baseUrl, auth, cfg.rootPath.replace(/\/+$/,'') + '/' + encodePath(act.rel), buf as any)
+            await ensureRemoteDir(baseUrl, auth, remoteDir)
+            await uploadFile(baseUrl, auth, cfg.rootPath.replace(/\/+$/,'') + '/' + encodePath(act.rel), buf as any)
               // 记录到元数据 - 使用扫描时的哈希
             const meta = await stat(full)
             const local = localIdx.get(act.rel)
@@ -1094,7 +1111,7 @@ export async function syncNow(reason: SyncReason): Promise<{ uploaded: number; d
           } else {
             // 保留远程 → 下载
             await syncLog('[conflict-resolve] ' + act.rel + ' 保留远程版本')
-            const data = await downloadFile(cfg.baseUrl, auth, cfg.rootPath.replace(/\/+$/,'') + '/' + encodePath(act.rel))
+            const data = await downloadFile(baseUrl, auth, cfg.rootPath.replace(/\/+$/,'') + '/' + encodePath(act.rel))
             const hash = await calculateFileHash(data)
             const full = localRoot + (localRoot.includes('\\') ? '\\' : '/') + act.rel.replace(/\//g, localRoot.includes('\\') ? '\\' : '/')
             const dir = full.split(/\\|\//).slice(0, -1).join(localRoot.includes('\\') ? '\\' : '/')
@@ -1121,7 +1138,7 @@ export async function syncNow(reason: SyncReason): Promise<{ uploaded: number; d
           } else {
             // 正常下载
             await syncLog('[download] ' + act.rel + ' (' + act.reason + ')')
-            const data = await downloadFile(cfg.baseUrl, auth, cfg.rootPath.replace(/\/+$/,'') + '/' + encodePath(act.rel))
+            const data = await downloadFile(baseUrl, auth, cfg.rootPath.replace(/\/+$/,'') + '/' + encodePath(act.rel))
             const hash = await calculateFileHash(data)
             const full = localRoot + (localRoot.includes('\\') ? '\\' : '/') + act.rel.replace(/\//g, localRoot.includes('\\') ? '\\' : '/')
             const dir = full.split(/\\|\//).slice(0, -1).join(localRoot.includes('\\') ? '\\' : '/')
@@ -1148,8 +1165,8 @@ export async function syncNow(reason: SyncReason): Promise<{ uploaded: number; d
           const relPath = encodePath(act.rel)
           const relDir = relPath.split('/').slice(0, -1).join('/')
           const remoteDir = (cfg.rootPath || '').replace(/\/+$/, '') + (relDir ? '/' + relDir : '')
-          await ensureRemoteDir(cfg.baseUrl, auth, remoteDir)
-          await uploadFile(cfg.baseUrl, auth, cfg.rootPath.replace(/\/+$/,'') + '/' + encodePath(act.rel), buf as any)
+          await ensureRemoteDir(baseUrl, auth, remoteDir)
+          await uploadFile(baseUrl, auth, cfg.rootPath.replace(/\/+$/,'') + '/' + encodePath(act.rel), buf as any)
           await syncLog('[ok] upload ' + act.rel)
           // 记录到元数据 - 使用扫描时的哈希
           const meta = await stat(full)
@@ -1190,7 +1207,7 @@ export async function syncNow(reason: SyncReason): Promise<{ uploaded: number; d
             if (userChoice) {
               // 用户选择删除远程文件
               await syncLog('[local-deleted-action] ' + act.rel + ' 用户选择删除远程文件')
-              await deleteRemoteFile(cfg.baseUrl, auth, cfg.rootPath.replace(/\/+$/,'') + '/' + encodePath(act.rel))
+              await deleteRemoteFile(baseUrl, auth, cfg.rootPath.replace(/\/+$/,'') + '/' + encodePath(act.rel))
                   await syncLog('[ok] delete-remote ' + act.rel)
               // 从元数据中移除
               delete newMeta.files[act.rel]
@@ -1198,7 +1215,7 @@ export async function syncNow(reason: SyncReason): Promise<{ uploaded: number; d
             } else {
               // 用户选择从远程恢复
               await syncLog('[local-deleted-action] ' + act.rel + ' 用户选择从远程恢复')
-              const data = await downloadFile(cfg.baseUrl, auth, cfg.rootPath.replace(/\/+$/,'') + '/' + encodePath(act.rel))
+              const data = await downloadFile(baseUrl, auth, cfg.rootPath.replace(/\/+$/,'') + '/' + encodePath(act.rel))
               const hash = await calculateFileHash(data)
               const full = localRoot + (localRoot.includes('\\') ? '\\' : '/') + act.rel.replace(/\//g, localRoot.includes('\\') ? '\\' : '/')
               const dir = full.split(/\\|\//).slice(0, -1).join(localRoot.includes('\\') ? '\\' : '/')
@@ -1490,7 +1507,7 @@ export async function openWebdavSyncDialog(): Promise<void> {
         </div>
         <form class="upl-body" id="sync-form">
           <div class="upl-grid">
-            <div class="upl-section-title">${t('sync.section.basic')}</div>\n            <div class="sync-toggles">\n              <div class="item">\n                <span class="lbl">${t('sync.enable')}</span>\n                <label class=\"switch\" for=\"sync-enabled\">\n                  <input id=\"sync-enabled\" type=\"checkbox\"/>\n                  <span class=\"trk\"></span><span class=\"kn\"></span>\n                </label>\n              </div>\n              <div class=\"item\">\n                <span class=\"lbl\">${t('sync.onstartup')}</span>\n                <label class=\"switch\" for=\"sync-onstartup\">\n                  <input id=\"sync-onstartup\" type=\"checkbox\"/>\n                  <span class=\"trk\"></span><span class=\"kn\"></span>\n                </label>\n              </div>\n              <div class=\"item\">\n                <span class=\"lbl\">${t('sync.onshutdown')}</span>\n                <label class=\"switch\" for=\"sync-onshutdown\">\n                  <input id=\"sync-onshutdown\" type=\"checkbox\"/>\n                  <span class=\"trk\"></span><span class=\"kn\"></span>\n                </label>\n              </div>\n              <div class=\"upl-hint warn pad-1ch\" style=\"white-space: nowrap;\">\n                ${t('sync.warn.onshutdown')}\n              </div>\n            </div>\n<label for=\"sync-timeout\">${t('sync.timeout.label')}<\/label>
+            <div class="upl-section-title">${t('sync.section.basic')}</div>\n            <div class="sync-toggles">\n              <div class="item">\n                <span class="lbl">${t('sync.enable')}</span>\n                <label class=\"switch\" for=\"sync-enabled\">\n                  <input id=\"sync-enabled\" type=\"checkbox\"/>\n                  <span class=\"trk\"></span><span class=\"kn\"></span>\n                </label>\n              </div>\n              <div class=\"item\">\n                <span class=\"lbl\">${t('sync.onstartup')}</span>\n                <label class=\"switch\" for=\"sync-onstartup\">\n                  <input id=\"sync-onstartup\" type=\"checkbox\"/>\n                  <span class=\"trk\"></span><span class=\"kn\"></span>\n                </label>\n              </div>\n              <div class=\"item\">\n                <span class=\"lbl\">${t('sync.onshutdown')}</span>\n                <label class=\"switch\" for=\"sync-onshutdown\">\n                  <input id=\"sync-onshutdown\" type=\"checkbox\"/>\n                  <span class=\"trk\"></span><span class=\"kn\"></span>\n                </label>\n              </div>\n              <div class=\"upl-hint warn pad-1ch\" style=\"white-space: nowrap;\">\n                ${t('sync.warn.onshutdown')}\n              </div>\n              <div class=\"item\">\n                <span class=\"lbl\">${t('sync.allowHttp')}</span>\n                <label class=\"switch\" for=\"sync-allow-http\">\n                  <input id=\"sync-allow-http\" type=\"checkbox\"/>\n                  <span class=\"trk\"></span><span class=\"kn\"></span>\n                </label>\n              </div>\n              <div class=\"upl-hint warn pad-1ch sync-http-warn hidden\">\n                ${t('sync.allowHttp.warn')}\n              </div>\n            </div>\n<label for=\"sync-timeout\">${t('sync.timeout.label')}<\/label>
             <div class="upl-field">
               <input id="sync-timeout" type="number" min="1000" step="1000" placeholder="120000"/>
               <div class="upl-hint">${t('sync.timeout.suggest')}</div>
@@ -1589,6 +1606,8 @@ export async function openWebdavSyncDialog(): Promise<void> {
   const elRoot = overlay.querySelector('#sync-root') as HTMLInputElement
   const elUser = overlay.querySelector('#sync-user') as HTMLInputElement
   const elPass = overlay.querySelector('#sync-pass') as HTMLInputElement
+  const elAllowHttp = overlay.querySelector('#sync-allow-http') as HTMLInputElement
+  const elAllowHttpWarn = overlay.querySelector('.sync-http-warn') as HTMLDivElement | null
 
   const cfg = await getWebdavSyncConfig()
   elEnabled.checked = !!cfg.enabled
@@ -1603,6 +1622,15 @@ export async function openWebdavSyncDialog(): Promise<void> {
   elRoot.value = cfg.rootPath || '/flymd'
   elUser.value = cfg.username || ''
   elPass.value = cfg.password || ''
+  elAllowHttp.checked = cfg.allowHttpInsecure === true
+
+  const refreshAllowHttpWarn = () => {
+    if (!elAllowHttpWarn) return
+    if (elAllowHttp.checked) elAllowHttpWarn.classList.remove('hidden')
+    else elAllowHttpWarn.classList.add('hidden')
+  }
+  refreshAllowHttpWarn()
+  elAllowHttp.addEventListener('change', refreshAllowHttpWarn)
 
   const onSubmit = async (e: Event) => {
     e.preventDefault()
@@ -1620,6 +1648,7 @@ export async function openWebdavSyncDialog(): Promise<void> {
         rootPath: elRoot.value.trim() || '/flymd',
         username: elUser.value,
         password: elPass.value,
+        allowHttpInsecure: elAllowHttp.checked,
       })
       // 反馈
       try { const el = document.getElementById('status'); if (el) { el.textContent = t('sync.saved'); setTimeout(() => { try { el.textContent = '' } catch {} }, 1200) } } catch {}
