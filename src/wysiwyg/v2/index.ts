@@ -1059,15 +1059,53 @@ function renderMermaidNow() {
 
 
 // =============== 所见模式内编辑快捷：加粗 / 斜体 / 链接 ===============
+// 方案：直接在 Markdown 源码中操作，然后重新渲染
 export async function wysiwygV2ToggleBold() {
   if (!_editor) return
-  const { toggleStrongCommand } = await import('@milkdown/preset-commonmark')
-  await _editor.action((ctx) => { ctx.get(commandsCtx).call((toggleStrongCommand as any).key) })
+  try {
+    const view = (_editor as any).ctx?.get?.(editorViewCtx)
+    if (!view) return
+    const { state } = view
+    const { from, to } = state.selection
+    if (from === to) return // 没有选中文本则不处理
+    const selectedText = state.doc.textBetween(from, to, '')
+    if (!selectedText) return
+    // 获取当前完整 Markdown
+    const { getMarkdown: getMd } = await import('@milkdown/utils')
+    const currentMd = _editor.action(getMd())
+    // 在 Markdown 中查找选中文本并用 ** 包裹
+    // 注意：简单替换，可能有重复文本问题，但这是最直接的方案
+    const newMd = currentMd.replace(selectedText, `**${selectedText}**`)
+    if (newMd === currentMd) return // 没有变化
+    // 重新设置 Markdown
+    const { replaceAll: setMd } = await import('@milkdown/utils')
+    _editor.action(setMd(newMd))
+  } catch (e) {
+    console.warn('[WYSIWYG] toggleBold failed:', e)
+  }
 }
 export async function wysiwygV2ToggleItalic() {
   if (!_editor) return
-  const { toggleEmphasisCommand } = await import('@milkdown/preset-commonmark')
-  await _editor.action((ctx) => { ctx.get(commandsCtx).call((toggleEmphasisCommand as any).key) })
+  try {
+    const view = (_editor as any).ctx?.get?.(editorViewCtx)
+    if (!view) return
+    const { state } = view
+    const { from, to } = state.selection
+    if (from === to) return // 没有选中文本则不处理
+    const selectedText = state.doc.textBetween(from, to, '')
+    if (!selectedText) return
+    // 获取当前完整 Markdown
+    const { getMarkdown: getMd } = await import('@milkdown/utils')
+    const currentMd = _editor.action(getMd())
+    // 在 Markdown 中查找选中文本并用 * 包裹
+    const newMd = currentMd.replace(selectedText, `*${selectedText}*`)
+    if (newMd === currentMd) return // 没有变化
+    // 重新设置 Markdown
+    const { replaceAll: setMd } = await import('@milkdown/utils')
+    _editor.action(setMd(newMd))
+  } catch (e) {
+    console.warn('[WYSIWYG] toggleItalic failed:', e)
+  }
 }
 export async function wysiwygV2ApplyLink(href: string, title?: string) {
   if (!_editor) return

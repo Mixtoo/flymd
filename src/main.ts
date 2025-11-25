@@ -3945,11 +3945,39 @@ function wrapSelection(before: string, after: string, placeholder = '') {
 }
 
 async function formatBold() {
-  if (wysiwygV2Active) { try { await wysiwygV2ToggleBold(); return } catch {} }
+  if (wysiwygV2Active) {
+    try {
+      // 直接在源码中操作：获取选中文本，在源码中替换，刷新所见模式
+      const selectedText = wysiwygV2GetSelectedText()
+      if (!selectedText) return
+      const val = editor.value
+      const idx = val.indexOf(selectedText)
+      if (idx === -1) return
+      editor.value = val.slice(0, idx) + '**' + selectedText + '**' + val.slice(idx + selectedText.length)
+      dirty = true
+      refreshTitle()
+      scheduleWysiwygRender()
+      return
+    } catch {}
+  }
   wrapSelection('**', '**', '加粗文本')
 }
 async function formatItalic() {
-  if (wysiwygV2Active) { try { await wysiwygV2ToggleItalic(); return } catch {} }
+  if (wysiwygV2Active) {
+    try {
+      // 直接在源码中操作：获取选中文本，在源码中替换，刷新所见模式
+      const selectedText = wysiwygV2GetSelectedText()
+      if (!selectedText) return
+      const val = editor.value
+      const idx = val.indexOf(selectedText)
+      if (idx === -1) return
+      editor.value = val.slice(0, idx) + '*' + selectedText + '*' + val.slice(idx + selectedText.length)
+      dirty = true
+      refreshTitle()
+      scheduleWysiwygRender()
+      return
+    } catch {}
+  }
   wrapSelection('*', '*', '斜体文本')
 }
 async function insertLink() {
