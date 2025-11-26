@@ -44,6 +44,8 @@ const dict = {
     'menu.update': '更新',
     'menu.about': '关于',
     'menu.language': '语言',
+    'menu.exportConfig': '导出配置',
+    'menu.importConfig': '导入配置',
 
     'file.new': '新建',
     'file.open': '打开…',
@@ -234,6 +236,8 @@ const dict = {
     'menu.update': 'Update',
     'menu.about': 'About',
     'menu.language': 'Language',
+    'menu.exportConfig': 'Export Config',
+    'menu.importConfig': 'Import Config',
 
     'file.new': 'New',
     'file.open': 'Open…',

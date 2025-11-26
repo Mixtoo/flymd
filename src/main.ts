@@ -736,6 +736,230 @@ type PluginContextMenuItem = {
   config: ContextMenuItemConfig
 }
 const PLUGINS_DIR = 'flymd/plugins'
+const SETTINGS_FILE_NAME = 'flymd-settings.json'
+const CONFIG_BACKUP_VERSION = 2
+const CONFIG_BACKUP_FILE_EXT = 'flymdconfig'
+const BACKUP_PREFIX_APPDATA = 'appdata'
+const BACKUP_PREFIX_APPLOCAL = 'applocal'
+const APP_LOCAL_EXCLUDE_ROOTS = ['EBWebView']
+
+type ConfigBackupEntry = { path: string; data: string; size: number }
+type ConfigBackupPayload = { version: number; exportedAt: string; files: ConfigBackupEntry[] }
+type BackupPathInfo = { baseDir: BaseDirectory; relPath: string }
+
+function normalizeBackupPath(input: string): string {
+  try {
+    if (!input) return ''
+    const raw = String(input).replace(/\\/g, '/').replace(/\/+/g, '/')
+    const trimmed = raw.replace(/^\/+/, '')
+    const parts = trimmed.split('/').filter(part => part && part !== '.' && part !== '..')
+    return parts.join('/')
+  } catch {
+    return ''
+  }
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  if (!bytes || bytes.length === 0) return ''
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const slice = bytes.subarray(i, i + chunkSize)
+    let chunk = ''
+    for (let j = 0; j < slice.length; j++) {
+      chunk += String.fromCharCode(slice[j])
+    }
+    binary += chunk
+  }
+  return btoa(binary)
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  if (!b64) return new Uint8Array()
+  const binary = atob(b64)
+  const len = binary.length
+  const out = new Uint8Array(len)
+  for (let i = 0; i < len; i++) out[i] = binary.charCodeAt(i)
+  return out
+}
+
+function getSettingsBaseDir(): BaseDirectory {
+  const anyBase = BaseDirectory as any
+  return (anyBase?.AppData) ?? (anyBase?.AppConfig) ?? BaseDirectory.AppData
+}
+
+async function collectDirFilesForBackup(baseDir: BaseDirectory, relDir: string, prefix: string, list: ConfigBackupEntry[]): Promise<number> {
+  const normalizedDir = normalizeBackupPath(relDir || '')
+  const readTarget = normalizedDir ? normalizedDir : '.'
+  let entries: any[] = []
+  try {
+    entries = await readDir(readTarget as any, { baseDir, recursive: false } as any) as any[]
+  } catch {
+    return 0
+  }
+  let count = 0
+  for (const entry of entries) {
+    const name = (entry && entry.name) ? String(entry.name) : ''
+    if (!name) continue
+    const childRel = normalizedDir ? `${normalizedDir}/${name}` : name
+    if (prefix === BACKUP_PREFIX_APPLOCAL) {
+      const normalizedChild = normalizeBackupPath(childRel)
+      if (normalizedChild && APP_LOCAL_EXCLUDE_ROOTS.some((root) => normalizedChild === root || normalizedChild.startsWith(root + '/'))) {
+        continue
+      }
+    }
+    const isDir = entry?.isDirectory === true || entry?.isDir === true || Array.isArray(entry?.children)
+    if (isDir) {
+      count += await collectDirFilesForBackup(baseDir, childRel, prefix, list)
+    } else {
+      try {
+        const data = await readFile(childRel as any, { baseDir } as any)
+        const storedPath = normalizeBackupPath(`${prefix}/${childRel}`)
+        if (!storedPath) continue
+        list.push({ path: storedPath, data: bytesToBase64(data), size: data.length })
+        count++
+      } catch {}
+    }
+  }
+  return count
+}
+
+async function collectConfigBackupFiles(): Promise<{ files: ConfigBackupEntry[] }> {
+  const files: ConfigBackupEntry[] = []
+  const scopes: Array<{ baseDir: BaseDirectory; prefix: string }> = [
+    { baseDir: getSettingsBaseDir(), prefix: BACKUP_PREFIX_APPDATA },
+    { baseDir: BaseDirectory.AppLocalData, prefix: BACKUP_PREFIX_APPLOCAL },
+  ]
+  for (const scope of scopes) {
+    await collectDirFilesForBackup(scope.baseDir, '', scope.prefix, files)
+  }
+  return { files }
+}
+
+function resolveBackupPath(pathRaw: string): BackupPathInfo | null {
+  const normalized = normalizeBackupPath(pathRaw)
+  if (!normalized) return null
+  if (normalized.startsWith(BACKUP_PREFIX_APPDATA + '/')) {
+    const rel = normalizeBackupPath(normalized.slice((BACKUP_PREFIX_APPDATA + '/').length))
+    if (!rel) return null
+    return { baseDir: getSettingsBaseDir(), relPath: rel }
+  }
+  if (normalized.startsWith(BACKUP_PREFIX_APPLOCAL + '/')) {
+    const rel = normalizeBackupPath(normalized.slice((BACKUP_PREFIX_APPLOCAL + '/').length))
+    if (!rel) return null
+    return { baseDir: BaseDirectory.AppLocalData, relPath: rel }
+  }
+  if (normalized === SETTINGS_FILE_NAME) {
+    return { baseDir: getSettingsBaseDir(), relPath: SETTINGS_FILE_NAME }
+  }
+  if (normalized.startsWith('flymd/')) {
+    return { baseDir: BaseDirectory.AppLocalData, relPath: normalized }
+  }
+  return null
+}
+
+async function ensureParentDirsForBackup(info: BackupPathInfo | null): Promise<void> {
+  if (!info) return
+  const normalized = normalizeBackupPath(info.relPath)
+  if (!normalized) return
+  const parts = normalized.split('/')
+  if (parts.length <= 1) return
+  let cur = ''
+  for (let i = 0; i < parts.length - 1; i++) {
+    cur += (cur ? '/' : '') + parts[i]
+    if (!cur) continue
+    try {
+      await mkdir(cur as any, { baseDir: info.baseDir, recursive: true } as any)
+    } catch {}
+  }
+}
+
+async function clearDirectory(baseDir: BaseDirectory, relDir: string = ''): Promise<void> {
+  const normalizedDir = normalizeBackupPath(relDir || '')
+  const readTarget = normalizedDir ? normalizedDir : '.'
+  let entries: any[] = []
+  try {
+    entries = await readDir(readTarget as any, { baseDir, recursive: false } as any) as any[]
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    const name = (entry && entry.name) ? String(entry.name) : ''
+    if (!name) continue
+    const childRel = normalizedDir ? `${normalizedDir}/${name}` : name
+    const isDir = entry?.isDirectory === true || entry?.isDir === true || Array.isArray(entry?.children)
+    if (isDir) {
+      await clearDirectory(baseDir, childRel)
+      try { await remove(childRel as any, { baseDir } as any) } catch {}
+    } else {
+      try { await remove(childRel as any, { baseDir } as any) } catch {}
+    }
+  }
+}
+
+async function clearAppLocalDataForRestore(): Promise<void> {
+  let entries: any[] = []
+  try {
+    entries = await readDir('.' as any, { baseDir: BaseDirectory.AppLocalData, recursive: false } as any) as any[]
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    const name = entry?.name ? String(entry.name) : ''
+    if (!name) continue
+    if (APP_LOCAL_EXCLUDE_ROOTS.includes(name.replace(/\\/g, '/'))) continue
+    const isDir = entry?.isDirectory === true || entry?.isDir === true || Array.isArray(entry?.children)
+    if (isDir) {
+      await clearDirectory(BaseDirectory.AppLocalData, name)
+      try { await remove(name as any, { baseDir: BaseDirectory.AppLocalData } as any) } catch {}
+    } else {
+      try { await remove(name as any, { baseDir: BaseDirectory.AppLocalData } as any) } catch {}
+    }
+  }
+}
+
+async function restoreConfigFromPayload(payload: ConfigBackupPayload): Promise<{ settings: boolean; pluginFiles: number }> {
+  const files = Array.isArray(payload?.files) ? payload.files : []
+  if (!files.length) throw new Error('备份文件为空')
+  try {
+    if (store) {
+      await store.close()
+    }
+  } catch {}
+  store = null
+  let pluginFiles = 0
+  let hasSettings = false
+  let hasAppDataScope = false
+  let hasAppLocalScope = false
+  for (const entry of files) {
+    const normalized = normalizeBackupPath(entry?.path || '')
+    if (!normalized) continue
+    if (normalized === SETTINGS_FILE_NAME || normalized.startsWith(BACKUP_PREFIX_APPDATA + '/')) hasSettings = true
+    if (normalized.startsWith(`${BACKUP_PREFIX_APPLOCAL}/${PLUGINS_DIR}`) || normalized.startsWith('flymd/')) pluginFiles++
+    if (normalized.startsWith(BACKUP_PREFIX_APPDATA + '/')) hasAppDataScope = true
+    if (normalized.startsWith(BACKUP_PREFIX_APPLOCAL + '/')) hasAppLocalScope = true
+  }
+  if (hasAppDataScope) {
+    await clearDirectory(getSettingsBaseDir(), '')
+  }
+  if (hasAppLocalScope) {
+    await clearAppLocalDataForRestore()
+  } else if (pluginFiles > 0) {
+    await removeDirRecursive(PLUGINS_DIR)
+  }
+  for (const entry of files) {
+    const info = resolveBackupPath(entry?.path || '')
+    if (!info) continue
+    const data = base64ToBytes(entry?.data || '')
+    await ensureParentDirsForBackup(info)
+    await writeFile(info.relPath as any, data, { baseDir: info.baseDir } as any)
+  }
+  try {
+    store = await Store.load(SETTINGS_FILE_NAME)
+    await store?.save()
+  } catch {}
+  return { settings: hasSettings, pluginFiles }
+}
 let _appLocalDataDirCached: string | null | undefined
 async function getAppLocalDataDirCached(): Promise<string | null> {
   if (typeof _appLocalDataDirCached !== 'undefined') return _appLocalDataDirCached
@@ -909,6 +1133,75 @@ async function handleOpenSyncLogFromMenu(): Promise<void> {
   }
 }
 
+function formatBackupTimestamp(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+}
+
+async function handleExportConfigFromMenu(): Promise<void> {
+  try {
+    if (store) {
+      try { await store.save() } catch {}
+    }
+    const { files } = await collectConfigBackupFiles()
+    if (!files.length) {
+      pluginNotice('没有可导出的配置', 'err', 2200)
+      return
+    }
+    const ts = formatBackupTimestamp(new Date())
+    const defaultName = `flymd-config-${ts}.${CONFIG_BACKUP_FILE_EXT}`
+    const target = await save({
+      defaultPath: defaultName,
+      filters: [{ name: 'flyMD 配置备份', extensions: [CONFIG_BACKUP_FILE_EXT, 'json'] }]
+    } as any)
+    if (!target) return
+    const payload: ConfigBackupPayload = {
+      version: CONFIG_BACKUP_VERSION,
+      exportedAt: new Date().toISOString(),
+      files
+    }
+    await writeTextFile(target, JSON.stringify(payload, null, 2))
+    pluginNotice('配置与日志已完整导出', 'ok', 2200)
+  } catch (err) {
+    console.error('export config failed', err)
+    const msg = (err && (err as any).message) ? (err as any).message : String(err || 'unknown')
+    pluginNotice('导出配置失败：' + msg, 'err', 3000)
+  }
+}
+
+async function handleImportConfigFromMenu(): Promise<void> {
+  try {
+    const picked = await open({
+      filters: [{ name: 'flyMD 配置备份', extensions: [CONFIG_BACKUP_FILE_EXT, 'json'] }]
+    } as any)
+    const path = Array.isArray(picked) ? (picked[0] || '') : (picked || '')
+    if (!path) return
+    const text = await readTextFile(path)
+    let payload: ConfigBackupPayload | null = null
+    try {
+      payload = JSON.parse(text) as ConfigBackupPayload
+    } catch {
+      throw new Error('备份文件损坏或格式不正确')
+    }
+    if (!payload || typeof payload.version !== 'number' || payload.version < 1 || !Array.isArray(payload.files)) {
+      throw new Error('备份文件不兼容')
+    }
+    const confirmed = await ask('导入配置会清空并覆盖当前所有 flyMD 配置、扩展、日志与缓存数据，并需要重启后生效，是否继续？')
+    if (!confirmed) return
+    const result = await restoreConfigFromPayload(payload)
+    const restoredMsg = result.settings ? '配置/日志已恢复' : '文件已恢复'
+    pluginNotice(`${restoredMsg}，请重启应用以确保生效`, 'ok', 2600)
+    const restart = await ask('导入完成，是否立即重启应用？')
+    if (restart) {
+      try { location.reload() } catch {}
+    }
+  } catch (err) {
+    console.error('import config failed', err)
+    const msg = (err && (err as any).message) ? (err as any).message : String(err || 'unknown')
+    pluginNotice('导入配置失败：' + msg, 'err', 3200)
+  }
+}
+
 async function buildBuiltinContextMenuItems(): Promise<ContextMenuItemConfig[]> {
   const items: ContextMenuItemConfig[] = []
   const syncCfg = await (async () => { try { return await getWebdavSyncConfig() } catch { return null as any } })()
@@ -931,6 +1224,17 @@ async function buildBuiltinContextMenuItems(): Promise<ContextMenuItemConfig[]> 
     note: enabled ? '已开启' : '未开启',
     icon: '🖼️',
     onClick: async () => { await toggleUploaderEnabledFromMenu() }
+  })
+  items.push({ divider: true })
+  items.push({
+    label: t('menu.exportConfig') || '导出配置',
+    icon: '📦',
+    onClick: async () => { await handleExportConfigFromMenu() }
+  })
+  items.push({
+    label: t('menu.importConfig') || '导入配置',
+    icon: '📥',
+    onClick: async () => { await handleImportConfigFromMenu() }
   })
   return items
 }
