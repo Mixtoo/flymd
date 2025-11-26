@@ -28,6 +28,22 @@ export class TabBar {
   // 拖拽状态
   private draggedTabId: string | null = null
   private dragOverTabId: string | null = null
+  private contextMenuEl: HTMLDivElement | null = null
+  private contextMenuTargetTabId: string | null = null
+  private contextMenuVisible = false
+  private handleContextMenuOutside = (event: Event) => {
+    if (!this.contextMenuVisible) return
+    const target = event.target as Node | null
+    if (target && this.contextMenuEl && this.contextMenuEl.contains(target)) return
+    this.hideContextMenu()
+  }
+  private handleContextMenuKeydown = (event: KeyboardEvent) => {
+    if (!this.contextMenuVisible) return
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      this.hideContextMenu()
+    }
+  }
 
   constructor(options: TabBarOptions) {
     this.container = options.container
@@ -122,7 +138,7 @@ export class TabBar {
     closeBtn.title = '关闭'
     closeBtn.addEventListener('click', (e) => {
       e.stopPropagation()
-      this.closeTab(tab.id)
+      void this.closeTab(tab.id)
     })
     tabEl.appendChild(closeBtn)
 
@@ -135,8 +151,14 @@ export class TabBar {
     tabEl.addEventListener('mousedown', (e) => {
       if (e.button === 1) { // 中键
         e.preventDefault()
-        this.closeTab(tab.id)
+        void this.closeTab(tab.id)
       }
+    })
+
+    // 右键菜单
+    tabEl.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      this.showContextMenu(e.clientX, e.clientY, tab.id)
     })
 
     // 拖拽事件
@@ -237,20 +259,20 @@ export class TabBar {
     return '<svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"/></svg>'
   }
 
-  /**
-   * 关闭标签
-   */
-  private async closeTab(tabId: string): Promise<void> {
+   /**
+    * 关闭标签
+    */
+  private async closeTab(tabId: string): Promise<boolean> {
     const tab = this.tabManager.findTabById(tabId)
-    if (!tab) return
+    if (!tab) return false
 
     // 如果有未保存内容，先确认
     if (tab.dirty && this.onBeforeClose) {
       const confirmed = await this.onBeforeClose(tab)
-      if (!confirmed) return
+      if (!confirmed) return false
     }
 
-    await this.tabManager.closeTab(tabId)
+    return await this.tabManager.closeTab(tabId)
   }
 
   /**
@@ -269,6 +291,116 @@ export class TabBar {
           break
       }
     })
+  }
+
+  /**
+   * 确保上下文菜单已创建
+   */
+  private ensureContextMenu(): void {
+    if (this.contextMenuEl) return
+    const menu = document.createElement('div')
+    menu.className = 'tabbar-context-menu'
+    menu.style.display = 'none'
+    const actions: Array<{ label: string; action: 'close-right' | 'close-others' | 'close-all' }> = [
+      { label: '关闭右侧所有标签', action: 'close-right' },
+      { label: '关闭其他标签', action: 'close-others' },
+      { label: '关闭所有标签', action: 'close-all' },
+    ]
+    actions.forEach(({ label, action }) => {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'tabbar-context-item'
+      btn.textContent = label
+      btn.addEventListener('click', () => {
+        void this.handleContextMenuAction(action)
+      })
+      menu.appendChild(btn)
+    })
+    menu.addEventListener('contextmenu', (e) => e.preventDefault())
+    document.body.appendChild(menu)
+    this.contextMenuEl = menu
+  }
+
+  /**
+   * 处理上下文菜单动作
+   */
+  private async handleContextMenuAction(action: 'close-right' | 'close-others' | 'close-all'): Promise<void> {
+    const targetId = this.contextMenuTargetTabId
+    this.hideContextMenu()
+    switch (action) {
+      case 'close-right':
+        if (targetId) await this.closeTabsToRight(targetId)
+        break
+      case 'close-others':
+        if (targetId) await this.closeOtherTabs(targetId)
+        break
+      case 'close-all':
+        await this.closeAllTabs()
+        break
+    }
+  }
+
+  private async closeTabsToRight(tabId: string): Promise<void> {
+    const tabs = [...this.tabManager.getTabs()]
+    const index = tabs.findIndex(t => t.id === tabId)
+    if (index === -1) return
+    const targets = tabs.slice(index + 1).map(t => t.id)
+    await this.closeTabsSequentially(targets)
+  }
+
+  private async closeOtherTabs(tabId: string): Promise<void> {
+    const tabs = [...this.tabManager.getTabs()]
+    const targets = tabs.filter(t => t.id !== tabId).map(t => t.id)
+    await this.closeTabsSequentially(targets)
+  }
+
+  private async closeAllTabs(): Promise<void> {
+    const tabs = [...this.tabManager.getTabs()]
+    const targets = tabs.map(t => t.id)
+    await this.closeTabsSequentially(targets)
+  }
+
+  private async closeTabsSequentially(tabIds: string[]): Promise<void> {
+    for (const id of tabIds) {
+      const ok = await this.closeTab(id)
+      if (!ok) break
+    }
+  }
+
+  private showContextMenu(x: number, y: number, tabId: string): void {
+    this.ensureContextMenu()
+    if (!this.contextMenuEl) return
+    this.contextMenuTargetTabId = tabId
+    const menu = this.contextMenuEl
+    menu.style.visibility = 'hidden'
+    menu.style.display = 'flex'
+    menu.style.left = '0px'
+    menu.style.top = '0px'
+    const rect = menu.getBoundingClientRect()
+    const left = Math.min(Math.max(8, x), window.innerWidth - rect.width - 8)
+    const top = Math.min(Math.max(8, y), window.innerHeight - rect.height - 8)
+    menu.style.left = `${left}px`
+    menu.style.top = `${top}px`
+    menu.style.visibility = 'visible'
+    this.contextMenuVisible = true
+    document.addEventListener('mousedown', this.handleContextMenuOutside, true)
+    document.addEventListener('wheel', this.handleContextMenuOutside, true)
+    document.addEventListener('scroll', this.handleContextMenuOutside, true)
+    window.addEventListener('resize', this.handleContextMenuOutside)
+    document.addEventListener('keydown', this.handleContextMenuKeydown, true)
+  }
+
+  private hideContextMenu(): void {
+    if (!this.contextMenuEl || !this.contextMenuVisible) return
+    this.contextMenuEl.style.display = 'none'
+    this.contextMenuEl.style.visibility = 'visible'
+    this.contextMenuTargetTabId = null
+    this.contextMenuVisible = false
+    document.removeEventListener('mousedown', this.handleContextMenuOutside, true)
+    document.removeEventListener('wheel', this.handleContextMenuOutside, true)
+    document.removeEventListener('scroll', this.handleContextMenuOutside, true)
+    window.removeEventListener('resize', this.handleContextMenuOutside)
+    document.removeEventListener('keydown', this.handleContextMenuKeydown, true)
   }
 
   /**
@@ -326,6 +458,13 @@ export class TabBar {
       this.unsubscribe()
       this.unsubscribe = null
     }
+    this.hideContextMenu()
+    if (this.contextMenuEl && this.contextMenuEl.parentElement) {
+      this.contextMenuEl.parentElement.removeChild(this.contextMenuEl)
+    }
+    this.contextMenuEl = null
+    this.contextMenuTargetTabId = null
+    this.contextMenuVisible = false
     this.container.innerHTML = ''
   }
 }

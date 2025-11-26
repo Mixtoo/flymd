@@ -229,6 +229,7 @@ export class TabManager {
       this.hooks.setCurrentFilePath(null)
       this.hooks.setDirty(false)
       this.hooks.refreshTitle()
+      this.hooks.refreshPreview()
     }
 
     this.emit({ type: 'tab-created', tab })
