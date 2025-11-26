@@ -616,15 +616,23 @@ function cleanupCodeCopyOverlay() {
 
 function setupCodeCopyOverlay(host: HTMLElement | null) {
   cleanupCodeCopyOverlay()
-  if (!host) return
-  _codeCopyHost = host
+  let scrollHost: HTMLElement | null = null
+  try {
+    const root = _root as HTMLElement | null
+    const sv = root?.querySelector('.scrollView') as HTMLElement | null
+    scrollHost = sv || host || root
+  } catch {
+    scrollHost = host
+  }
+  if (!scrollHost) return
+  _codeCopyHost = scrollHost
   const onScroll = () => { scheduleCodeCopyRefresh() }
   _codeCopyScrollHandler = onScroll
-  try { host.addEventListener('scroll', onScroll, { passive: true }) } catch { try { host.addEventListener('scroll', onScroll) } catch {} }
+  try { scrollHost.addEventListener('scroll', onScroll, { passive: true }) } catch { try { scrollHost.addEventListener('scroll', onScroll) } catch {} }
   if (typeof ResizeObserver !== 'undefined') {
     try {
       _codeCopyResizeObserver = new ResizeObserver(() => { scheduleCodeCopyRefresh() })
-      _codeCopyResizeObserver.observe(host)
+      _codeCopyResizeObserver.observe(scrollHost)
     } catch {}
   }
   const onResize = () => { scheduleCodeCopyRefresh() }
