@@ -527,7 +527,7 @@ function renderMsgs(root) {
     if (m.role === 'assistant') {
       const avatar = DOC().createElement('img')
       avatar.className = 'ai-avatar'
-      avatar.src = 'Flymdnew.png'
+      avatar.src = 'plugins/ai-assistant/Flymdnew.png'
       avatar.alt = 'AI'
       wrapper.appendChild(avatar)
     }
