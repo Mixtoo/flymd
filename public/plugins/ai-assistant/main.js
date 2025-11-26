@@ -541,12 +541,18 @@ function renderMsgs(root) {
     if (m.role === 'assistant') {
       const avatar = DOC().createElement('img')
       avatar.className = 'ai-avatar'
-      avatar.src = resolvePluginAsset('Flymdnew.png')
-      if (AI_AVATAR_FALLBACK_URL) {
-        avatar.onerror = () => {
-          avatar.onerror = null
-          avatar.src = AI_AVATAR_FALLBACK_URL
+      const localAvatar = resolvePluginAsset('Flymdnew.png')
+      const fallbackAvatar = AI_AVATAR_FALLBACK_URL
+      if (localAvatar) {
+        if (fallbackAvatar) {
+          avatar.onerror = () => {
+            avatar.onerror = null
+            avatar.src = fallbackAvatar
+          }
         }
+        avatar.src = localAvatar
+      } else if (fallbackAvatar) {
+        avatar.src = fallbackAvatar
       }
       avatar.alt = 'AI'
       wrapper.appendChild(avatar)
