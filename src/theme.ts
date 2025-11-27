@@ -235,6 +235,14 @@ function buildColorList(): Array<{ id: string; label: string; color: string }> {
     { id: 'peach', label: '蜜桃', color: '#fff5ee' },
     { id: 'rose', label: '玫瑰', color: '#fff5f7' },
     { id: 'apricot', label: '杏色', color: '#fff8f0' },
+    // 自然色系
+    { id: 'sage', label: '鼠尾草', color: '#f0f4f0' },
+    { id: 'bamboo', label: '竹青', color: '#f2f6f0' },
+    { id: 'cloud', label: '云白', color: '#f8fafc' },
+    // 文艺色系
+    { id: 'sepia', label: '复古黄', color: '#fdf6e3' },
+    { id: 'latte', label: '拿铁', color: '#f9f5f0' },
+    { id: 'mocha', label: '摩卡', color: '#f7f3ed' },
   ]
   return base.concat(_palettes)
 }
@@ -244,6 +252,16 @@ function createPanel(): HTMLDivElement {
   panel.className = 'theme-panel hidden'
   panel.id = 'theme-panel'
   panel.innerHTML = `
+    <div class="theme-panel-header">
+      <span class="theme-panel-title">主题设置</span>
+      <button class="theme-panel-close" title="关闭">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+    <div class="theme-panel-content">
     <div class="theme-section theme-focus-section">
       <div class="theme-focus-row">
         <label class="theme-toggle-label theme-toggle-third theme-toggle-boxed" for="focus-mode-toggle">
@@ -317,6 +335,7 @@ function createPanel(): HTMLDivElement {
         <select id="font-mono-select"></select>
         <div class="font-actions">
       </div>
+    </div>
     </div>
   `
   return panel
@@ -756,6 +775,22 @@ export function initThemeUI(): void {
       // 监听开关变化
       darkModeToggle.addEventListener('change', () => {
         setDarkMode(darkModeToggle.checked)
+      })
+    }
+
+    // 关闭按钮
+    const closeBtn = panel.querySelector('.theme-panel-close') as HTMLButtonElement | null
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        try {
+          // 关闭前还原预览变量
+          const c = getContainer(); if (c) {
+            c.style.setProperty('--bg', lastSaved.editBg)
+            c.style.setProperty('--preview-bg', lastSaved.readBg)
+            c.style.setProperty('--wysiwyg-bg', lastSaved.wysiwygBg)
+          }
+        } catch {}
+        panel!.classList.add('hidden')
       })
     }
 

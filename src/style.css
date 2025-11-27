@@ -1608,17 +1608,17 @@ body.focus-mode .lib-float-toggle.show { display: flex; }
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  min-width: 450px;
-  max-width: 600px;
+  min-width: 520px;
+  max-width: 680px;
   max-height: 80vh;
   overflow: auto;
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,.1);
   z-index: 40;
-  padding: 20px 24px 24px;
+  padding: 0;
   animation: theme-panel-slidein 0.25s ease-out;
   scrollbar-width: thin;
   scrollbar-color: rgba(127,127,127,0.3) transparent;
@@ -1641,6 +1641,58 @@ body.focus-mode .lib-float-toggle.show { display: flex; }
 .theme-panel::-webkit-scrollbar-thumb:hover { background: rgba(127,127,127,0.5); }
 
 .theme-panel.hidden { display: none; }
+
+/* 主题面板标题栏 */
+.theme-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(127,127,127,0.12);
+  background: rgba(127,127,127,0.02);
+  border-radius: 12px 12px 0 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  backdrop-filter: blur(8px);
+}
+
+.theme-panel-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: 0.3px;
+}
+
+.theme-panel-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: rgba(127,127,127,0.08);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg);
+  opacity: 0.6;
+  transition: all 0.15s ease;
+}
+
+.theme-panel-close:hover {
+  opacity: 1;
+  background: rgba(127,127,127,0.15);
+}
+
+.theme-panel-close svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* 主题面板内容区 */
+.theme-panel-content {
+  padding: 16px 20px 20px;
+}
 
 .theme-section {
   margin: 0 0 14px 0;
@@ -4089,6 +4141,24 @@ body.dark-mode .ProseMirror img {
 body.dark-mode .theme-panel {
   background: #1a1b1e !important;
   border-color: #2d3748 !important;
+}
+
+body.dark-mode .theme-panel-header {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+body.dark-mode .theme-panel-title {
+  color: #e5e7eb !important;
+}
+
+body.dark-mode .theme-panel-close {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #e5e7eb !important;
+}
+
+body.dark-mode .theme-panel-close:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
 }
 
 body.dark-mode .theme-title,
