@@ -78,10 +78,11 @@ Stay connected for the latest updates, preview builds, and tips:
 | Feature | Description |
 |---------|-------------|
 | **One-Click Publish** | Typecho / WordPress / Halo blog platforms |
-| **AI Assistant Extension** | Writing assistance, polishing, and error correction |
+| **AI Assistant Extension** | Writing assistance, polishing, and error correction with Markdown rendering and code highlighting |
 | **Smart Todo Reminder** | Auto-detect TODOs, push via WeChat, SMS, Email, DingTalk, Feishu |
 | **iframe Embedding** | Embed music, videos, maps, online documents |
 | **Selection-Aware AI** | Right-click actions target only selected text for precise editing |
+| **Tabs & Sticky Notes Toolkit** | Tab right-click menu supports opening in a new instance, renaming files, and one-click creating sticky note windows that stay on your desktop |
 
 > 💡 The AI Assistant extension installs silently on first launch. If you uninstall it, FlyMD will never auto-install it again.
 
@@ -115,7 +116,7 @@ Press `Ctrl+Shift+F` to enter Focus Mode and enjoy true immersive writing:
 - **Pure creation** - No title bar, no menu, no distractions—let thoughts flow freely
 - **One-click switch** - Instantly enter your flow state
 
-**Use Cases**: 📝 Long-form writing · ✍️ Creative bursts · 🎨 Document presentations
+**Use Cases**: 📝 Long-form writing · ✍️ Creative bursts · 🎨 Document presentations · 📌 Desktop sticky notes
 
 ---
 

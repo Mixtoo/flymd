@@ -799,6 +799,95 @@ context.ui.notice('已打开文档，长度：' + content.length, 'ok');
 - 仅支持当前 flyMD 支持的文档类型（`md / markdown / txt / pdf`）。
 - 同样走应用内部的打开流程，会更新当前文档路径、最近文件等状态。
 
+### context.createStickyNote
+
+创建便签窗口：在新实例中以便签模式打开指定文件，自动进入专注模式+阅读模式+关闭库侧栏，并显示便签控制按钮（锁定拖动/窗口置顶）。
+
+```javascript
+// 将当前文档作为便签打开
+const currentFile = 'C:/notes/todo.md';
+await context.createStickyNote(currentFile);
+context.ui.notice('便签已创建', 'ok');
+
+// 或者从插件菜单中触发
+context.addMenuItem({
+  label: '快速便签',
+  children: [
+    {
+      label: '创建待办便签',
+      onClick: async () => {
+        const todoFile = await context.storage.get('todoFilePath');
+        if (todoFile) {
+          await context.createStickyNote(todoFile);
+        } else {
+          context.ui.notice('请先设置待办文件路径', 'err');
+        }
+      }
+    }
+  ]
+});
+```
+
+**功能说明：**
+- 便签窗口会自动缩小到 400×300 像素并移动到屏幕右上角
+- 自动进入专注模式（隐藏原生标题栏）
+- 自动切换到阅读模式
+- 自动关闭库侧栏
+- 显示两个控制按钮（仅便签模式可见）：
+  - **图钉按钮**：锁定窗口位置（禁止拖动）
+  - **置顶按钮**：窗口始终在最上层
+
+**参数说明：**
+- `filePath`（string，必需）：要在便签模式打开的文件绝对路径
+
+**注意事项：**
+- 文件必须已保存到磁盘（有绝对路径）
+- 仅支持文本类型文件（`.md`、`.markdown`、`.txt`）
+- 便签窗口仍可切换回编辑模式，用户保留完整编辑能力
+- 便签模式不影响主窗口，两者可同时运行
+
+**实战示例：快速待办便签**
+
+```javascript
+export function activate(context) {
+  let quickNoteFiles = [];
+
+  context.addMenuItem({
+    label: '便签工具',
+    children: [
+      {
+        label: '添加快捷便签',
+        onClick: async () => {
+          const files = await context.pickDocFiles({ multiple: true });
+          if (files && files.length > 0) {
+            quickNoteFiles = [...quickNoteFiles, ...files];
+            await context.storage.set('quickNotes', quickNoteFiles);
+            context.ui.notice(`已添加 ${files.length} 个便签`, 'ok');
+          }
+        }
+      },
+      { type: 'divider' },
+      {
+        type: 'group',
+        label: '快捷便签'
+      },
+      ...quickNoteFiles.map(file => ({
+        label: file.split(/[/\\]/).pop(),
+        note: '📌',
+        onClick: async () => {
+          await context.createStickyNote(file);
+        }
+      }))
+    ]
+  });
+
+  // 启动时加载保存的快捷便签列表
+  context.storage.get('quickNotes').then(saved => {
+    if (saved) quickNoteFiles = saved;
+  });
+}
+```
+
 ### context.exportCurrentToPdf
 
 将当前文档导出为 PDF 文件，目标路径由插件指定。

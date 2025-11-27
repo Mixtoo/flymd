@@ -2,6 +2,14 @@
 
 [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
 
+## Update v0.5.0 (Preview)
+- Added: Sticky Note mode to open the current document in a compact, dedicated note window that automatically switches to Focus + Reading mode, hides the sidebar, and keeps only the content area—ideal for todos, small reference notes, and ideas that should stay on the desktop.
+- Added: Sticky Note controls with round "Lock position" and "Always on top" buttons, so you can disable window dragging to avoid accidental moves and keep notes floating above other apps.
+- Added: Enhanced tab right-click menu with "Open in new instance", direct file rename on disk, and one-click "Create sticky note" from the current tab.
+- Improved: AI Assistant replies now support Markdown rendering and code highlighting, making long answers and code snippets much easier to read.
+- Improved: AI requests gain automatic retry with a clearer "thinking…" indicator, while long-running operations like translation use a persistent, dismissible notification bar instead of transient toasts.
+- Fixed: Some extensions' long-running notifications either failed to stay visible or could not be dismissed correctly when using the unified notification API.
+
 ## Update v0.4.8
 - Added: WebDAV sync now supports end-to-end encryption, encrypting file contents locally before upload so even compromised servers cannot easily read the plaintext.
 - Added: Restored the OMG preset endpoint and signup link in the AI Assistant settings for quick access to the OMG resource bundle.
