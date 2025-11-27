@@ -5346,6 +5346,7 @@ body.sticky-note-mode .preview-body li {
   font-size: 14px !important;
   line-height: 1.4 !important;
   color: var(--sticky-fg, var(--fg));
+  text-shadow: var(--sticky-text-shadow, none);
 }
 
 body.sticky-note-mode li.task-list-item {

@@ -6842,6 +6842,9 @@ async function setStickyNoteOpacity(opacity: number) {
   // 设置 CSS 变量，让 rgba() 背景生效
   document.documentElement.style.setProperty('--sticky-opacity', String(stickyNoteOpacity))
 
+  // 根据新的透明度更新文字样式
+  updateStickyTextStyle(stickyNoteColor, stickyNoteOpacity)
+
   // 持久化
   if (store) {
     await store.set('stickyNoteOpacity', stickyNoteOpacity)
@@ -6865,6 +6868,33 @@ function applyStickyNoteColorToDom(color: StickyNoteColor) {
   root.style.setProperty('--sticky-rgb', rgb)
   if (fg) root.style.setProperty('--sticky-fg', fg)
   else root.style.removeProperty('--sticky-fg')
+
+  // 根据透明度和背景色调整文字样式
+  updateStickyTextStyle(color, stickyNoteOpacity)
+}
+
+// 根据背景色和透明度动态调整文字样式，确保在任何透明度下都清晰可读
+function updateStickyTextStyle(color: StickyNoteColor, opacity: number) {
+  const root = document.documentElement
+
+  // 黑色背景始终使用白色文字，不需要额外处理
+  if (color === 'black') {
+    root.style.removeProperty('--sticky-text-shadow')
+    return
+  }
+
+  // 对于浅色背景（白色、灰色、黄色），当透明度较高时添加文字阴影增强可读性
+  // 透明度 < 0.6 时（即超过40%透明），添加文字阴影
+  if (opacity < 0.6) {
+    // 添加白色外发光效果，让文字在任何背景下都清晰
+    const shadowStrength = Math.max(0, (0.6 - opacity) * 2) // 0 到 0.8
+    const shadowBlur = 2 + shadowStrength * 3 // 2px 到 5px
+    const shadowColor = `rgba(255, 255, 255, ${0.8 + shadowStrength * 0.2})` // 0.8 到 1.0
+    root.style.setProperty('--sticky-text-shadow',
+      `0 0 ${shadowBlur}px ${shadowColor}, 0 0 ${shadowBlur * 1.5}px ${shadowColor}`)
+  } else {
+    root.style.removeProperty('--sticky-text-shadow')
+  }
 }
 
 // 设置便签背景色（含持久化）
