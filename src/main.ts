@@ -6508,6 +6508,9 @@ try {
     ;(window as any).flymdNewFile = newFile
     ;(window as any).flymdSaveFile = saveFile
     ;(window as any).flymdRenamePathWithDialog = (path: string) => renamePathWithDialog(path)
+    ;(window as any).flymdOpenInNewInstance = async (path: string) => {
+      try { await openPath(path) } catch {}
+    }
     // 确认对话框
     ;(window as any).flymdConfirmNative = confirmNative
     // 所见模式内容替换

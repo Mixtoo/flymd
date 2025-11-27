@@ -301,7 +301,8 @@ export class TabBar {
     const menu = document.createElement('div')
     menu.className = 'tabbar-context-menu'
     menu.style.display = 'none'
-    const actions: Array<{ label: string; action: 'rename' | 'close-right' | 'close-others' | 'close-all' }> = [
+    const actions: Array<{ label: string; action: 'open-new-instance' | 'rename' | 'close-right' | 'close-others' | 'close-all' }> = [
+      { label: '在新实例中打开', action: 'open-new-instance' },
       { label: '重命名文档…', action: 'rename' },
       { label: '关闭右侧所有标签', action: 'close-right' },
       { label: '关闭其他标签', action: 'close-others' },
@@ -325,10 +326,13 @@ export class TabBar {
   /**
    * 处理上下文菜单动作
    */
-  private async handleContextMenuAction(action: 'rename' | 'close-right' | 'close-others' | 'close-all'): Promise<void> {
+  private async handleContextMenuAction(action: 'open-new-instance' | 'rename' | 'close-right' | 'close-others' | 'close-all'): Promise<void> {
     const targetId = this.contextMenuTargetTabId
     this.hideContextMenu()
     switch (action) {
+      case 'open-new-instance':
+        if (targetId) await this.openTabInNewInstance(targetId)
+        break
       case 'rename':
         if (targetId) await this.renameTabFile(targetId)
         break
@@ -368,6 +372,30 @@ export class TabBar {
     for (const id of tabIds) {
       const ok = await this.closeTab(id)
       if (!ok) break
+    }
+  }
+
+  private async openTabInNewInstance(tabId: string): Promise<void> {
+    const tab = this.tabManager.findTabById(tabId)
+    if (!tab) return
+    if (!tab.filePath) {
+      alert('当前标签尚未保存为文件，无法在新实例中打开。\n请先保存到磁盘后再尝试。')
+      return
+    }
+    if (tab.dirty) {
+      alert('当前标签有未保存的更改，禁止在新实例中打开。\n请先保存后再尝试。')
+      return
+    }
+    const flymd = (window as any)
+    const openFn = flymd?.flymdOpenInNewInstance as ((path: string) => Promise<void>) | undefined
+    if (typeof openFn !== 'function') {
+      alert('当前环境不支持新实例打开，请直接从系统中双击该文件。')
+      return
+    }
+    try {
+      await openFn(tab.filePath)
+    } catch (e) {
+      console.error('[TabBar] 新实例打开文档失败:', e)
     }
   }
 
