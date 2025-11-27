@@ -661,6 +661,95 @@ context.ui.notice('Opened document, length: ' + content.length, 'ok');
 - Only supports document types currently supported by flyMD (`md / markdown / txt / pdf`).
 - Uses internal app opening process, updates current document path, recent files, and other states.
 
+### context.createStickyNote
+
+Create a sticky note window: open specified file in new instance in sticky note mode, automatically enter focus mode + read mode + close library sidebar, and display sticky note control buttons (lock dragging/window always on top).
+
+```javascript
+// Open current document as sticky note
+const currentFile = 'C:/notes/todo.md';
+await context.createStickyNote(currentFile);
+context.ui.notice('Sticky note created', 'ok');
+
+// Or trigger from plugin menu
+context.addMenuItem({
+  label: 'Quick Notes',
+  children: [
+    {
+      label: 'Create Todo Sticky Note',
+      onClick: async () => {
+        const todoFile = await context.storage.get('todoFilePath');
+        if (todoFile) {
+          await context.createStickyNote(todoFile);
+        } else {
+          context.ui.notice('Please set todo file path first', 'err');
+        }
+      }
+    }
+  ]
+});
+```
+
+**Features:**
+- Sticky note window automatically resizes to 400×300 pixels and moves to top-right corner
+- Automatically enters focus mode (hides native titlebar)
+- Automatically switches to read mode
+- Automatically closes library sidebar
+- Displays two control buttons (only visible in sticky note mode):
+  - **Pin button**: Lock window position (disable dragging)
+  - **Top button**: Keep window always on top
+
+**Parameters:**
+- `filePath` (string, required): Absolute path of file to open in sticky note mode
+
+**Notes:**
+- File must be saved to disk (have absolute path)
+- Only supports text file types (`.md`, `.markdown`, `.txt`)
+- Sticky note window can still switch back to edit mode, user retains full editing capability
+- Sticky note mode doesn't affect main window, both can run simultaneously
+
+**Practical Example: Quick Todo Sticky Notes**
+
+```javascript
+export function activate(context) {
+  let quickNoteFiles = [];
+
+  context.addMenuItem({
+    label: 'Sticky Note Tools',
+    children: [
+      {
+        label: 'Add Quick Sticky Note',
+        onClick: async () => {
+          const files = await context.pickDocFiles({ multiple: true });
+          if (files && files.length > 0) {
+            quickNoteFiles = [...quickNoteFiles, ...files];
+            await context.storage.set('quickNotes', quickNoteFiles);
+            context.ui.notice(`Added ${files.length} sticky notes`, 'ok');
+          }
+        }
+      },
+      { type: 'divider' },
+      {
+        type: 'group',
+        label: 'Quick Sticky Notes'
+      },
+      ...quickNoteFiles.map(file => ({
+        label: file.split(/[/\\]/).pop(),
+        note: '📌',
+        onClick: async () => {
+          await context.createStickyNote(file);
+        }
+      }))
+    ]
+  });
+
+  // Load saved quick notes list on startup
+  context.storage.get('quickNotes').then(saved => {
+    if (saved) quickNoteFiles = saved;
+  });
+}
+```
+
 ### context.exportCurrentToPdf
 
 Export current document to PDF file, target path specified by plugin.
