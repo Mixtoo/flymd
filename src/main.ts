@@ -7387,8 +7387,12 @@ async function enterStickyNoteMode(filePath: string) {
     console.error('[便签模式] 打开文件失败:', e)
   }
 
-  // 2. 进入专注模式
+  // 2. 进入专注模式（先记住之前的状态，供下次正常启动恢复）
   try {
+    if (store) {
+      await store.set('focusModeBeforeSticky', focusMode)
+      await store.save()
+    }
     await toggleFocusMode(true)
   } catch (e) {
     console.error('[便签模式] 进入专注模式失败:', e)
@@ -10068,15 +10072,7 @@ function bindEvents() {
     refreshStatus()
     bindEvents()  // 🔧 关键：无论存储是否成功，都要绑定事件
     initContextMenuListener()  // 初始化右键菜单监听
-    // 恢复专注模式状态
-    try {
-      getFocusMode().then(v => {
-        if (v) {
-          // 延迟一下确保窗口已完全初始化
-          setTimeout(() => toggleFocusMode(true), 100)
-        }
-      })
-    } catch {}
+    // 注意：专注模式状态恢复移至便签模式检测之后，见下方
     // 依据当前语言，应用一次 UI 文案（含英文简写，避免侧栏溢出）
     try { applyI18nUi() } catch {}
     try { logInfo('打点:事件绑定完成') } catch {}
@@ -10159,6 +10155,29 @@ function bindEvents() {
         await win.setPosition(new LogicalPosition(posX, posY))
       } catch (e) {
         console.warn('[启动] 重置窗口大小/位置失败:', e)
+      }
+
+      // 恢复专注模式状态（优先使用便签前记录的状态）
+      try {
+        if (store) {
+          const beforeSticky = await store.get('focusModeBeforeSticky')
+          if (beforeSticky !== undefined && beforeSticky !== null) {
+            // 有便签前状态记录：使用它来恢复，并清除记录
+            if (beforeSticky) {
+              setTimeout(() => toggleFocusMode(true), 100)
+            }
+            await store.delete('focusModeBeforeSticky')
+            await store.save()
+          } else {
+            // 没有便签前状态记录：使用正常的 focusMode 恢复
+            const savedFocusMode = await store.get('focusMode')
+            if (savedFocusMode) {
+              setTimeout(() => toggleFocusMode(true), 100)
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[启动] 恢复专注模式状态失败:', e)
       }
     }
 
