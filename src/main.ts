@@ -365,6 +365,7 @@ let stickyNoteMode = false
 let stickyNoteLocked = false   // 窗口位置锁定（禁止拖动）
 let stickyNoteOnTop = false    // 窗口置顶
 let stickyTodoAutoPreview = false // 便签快速待办编辑后是否需要自动返回阅读模式
+let stickyNoteOpacity = 0.85   // 窗口透明度
 // 边缘唤醒热区元素（非固定且隐藏时显示，鼠标靠近自动展开库）
 let _libEdgeEl: HTMLDivElement | null = null
 let _libFloatToggleEl: HTMLButtonElement | null = null
@@ -6624,6 +6625,12 @@ function getStickyTopIcon(isOnTop: boolean): string {
   </svg>`
 }
 
+function getStickyOpacityIcon(): string {
+  return `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+    <path d="M12,2.69L17.33,8.02C19.13,9.82 20,11.87 20,14.23C20,16.59 19.13,18.64 17.33,20.44C15.53,22.24 13.5,23 12,23C10.5,23 8.47,22.24 6.67,20.44C4.87,18.64 4,16.59 4,14.23C4,11.87 4.87,9.82 6.67,8.02L12,2.69Z"/>
+  </svg>`
+}
+
 // 编辑图标（笔）
 function getStickyEditIcon(isEditing: boolean): string {
   if (isEditing) {
@@ -6758,6 +6765,56 @@ async function toggleStickyWindowOnTop(btn: HTMLButtonElement) {
     await win.setAlwaysOnTop(stickyNoteOnTop)
   } catch (e) {
     console.error('[便签模式] 设置置顶失败:', e)
+  }
+}
+
+// 切换透明度滑块显示
+function toggleStickyOpacitySlider(btn: HTMLButtonElement) {
+  const existing = document.getElementById('sticky-opacity-slider-container')
+  if (existing) {
+    existing.remove()
+    btn.classList.remove('active')
+    return
+  }
+
+  const container = document.createElement('div')
+  container.id = 'sticky-opacity-slider-container'
+  container.className = 'sticky-opacity-slider-container'
+
+  const label = document.createElement('div')
+  label.className = 'sticky-opacity-label'
+  label.textContent = `透明度: ${Math.round(stickyNoteOpacity * 100)}%`
+
+  const slider = document.createElement('input')
+  slider.type = 'range'
+  slider.className = 'sticky-opacity-slider'
+  slider.min = '30'
+  slider.max = '100'
+  slider.value = String(Math.round(stickyNoteOpacity * 100))
+
+  slider.addEventListener('input', async (e) => {
+    const value = parseInt((e.target as HTMLInputElement).value)
+    label.textContent = `透明度: ${value}%`
+    await setStickyNoteOpacity(value / 100)
+  })
+
+  container.appendChild(label)
+  container.appendChild(slider)
+  document.body.appendChild(container)
+  btn.classList.add('active')
+}
+
+// 设置透明度（通过 CSS 变量实现真正透明）
+async function setStickyNoteOpacity(opacity: number) {
+  stickyNoteOpacity = Math.max(0.3, Math.min(1.0, opacity))
+
+  // 设置 CSS 变量，让 rgba() 背景生效
+  document.documentElement.style.setProperty('--sticky-opacity', String(stickyNoteOpacity))
+
+  // 持久化
+  if (store) {
+    await store.set('stickyNoteOpacity', stickyNoteOpacity)
+    await store.save()
   }
 }
 
@@ -6948,6 +7005,13 @@ function createStickyNoteControls() {
   topBtn.innerHTML = getStickyTopIcon(false)
   topBtn.addEventListener('click', async () => await toggleStickyWindowOnTop(topBtn))
 
+  // 透明度按钮
+  const opacityBtn = document.createElement('button')
+  opacityBtn.className = 'sticky-note-btn sticky-note-opacity-btn'
+  opacityBtn.title = '调整透明度'
+  opacityBtn.innerHTML = getStickyOpacityIcon()
+  opacityBtn.addEventListener('click', () => toggleStickyOpacitySlider(opacityBtn))
+
   // 待办按钮：在文末插入一行 "- [ ] "
   const todoBtn = document.createElement('button')
   todoBtn.className = 'sticky-note-btn'
@@ -6958,6 +7022,7 @@ function createStickyNoteControls() {
   container.appendChild(editBtn)
   container.appendChild(lockBtn)
   container.appendChild(topBtn)
+  container.appendChild(opacityBtn)
   container.appendChild(todoBtn)
   document.body.appendChild(container)
 }
@@ -7044,6 +7109,21 @@ async function enterStickyNoteMode(filePath: string) {
   } catch (e) {
     console.error('[便签模式] 调整窗口大小和位置失败:', e)
   }
+
+  // 8. 应用透明度设置
+  try {
+    // 加载保存的透明度
+    if (store) {
+      const saved = await store.get('stickyNoteOpacity') as number | null
+      if (saved !== null && saved >= 0.3 && saved <= 1.0) {
+        stickyNoteOpacity = saved
+      }
+    }
+    // 应用 CSS 变量
+    document.documentElement.style.setProperty('--sticky-opacity', String(stickyNoteOpacity))
+  } catch (e) {
+    console.error('[便签模式] 加载透明度失败:', e)
+  }
 }
 
 // ========== 便签模式结束 ==========
@@ -7075,6 +7155,7 @@ function resetStickyModeFlags(): void {
     stickyNoteOnTop = false
     stickyTodoAutoPreview = false
     document.body.classList.remove('sticky-note-mode')
+    try { document.documentElement.style.removeProperty('--sticky-opacity') } catch {}
   } catch {}
 }
 
@@ -9814,6 +9895,9 @@ function bindEvents() {
       try { await ensureMinWindowSize() } catch {}
       // 3) 兜底：强制退出专注模式并恢复原生标题栏，防止异常无标题栏状态
       try { await resetFocusModeDecorations() } catch {}
+
+      // 移除透明度 CSS 变量，确保主窗口不透明
+      try { document.documentElement.style.removeProperty('--sticky-opacity') } catch {}
 
       // 恢复编辑模式状态（如果有便签前记录）
       try {

@@ -40,8 +40,12 @@
 }
 html, body, #app { height: 100%; }
 html, body {
-  margin: 0; padding: 0;
-  background: var(--bg); color: var(--fg);
+  margin: 0;
+  padding: 0;
+}
+body {
+  background: var(--bg);
+  color: var(--fg);
   /* 改进字体渲染 */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -5351,6 +5355,72 @@ body.sticky-note-mode li.task-list-item:has(input.task-list-item-checkbox:checke
 
 body.sticky-note-mode li.task-list-item:has(input.task-list-item-checkbox:checked) .task-content {
   text-decoration: line-through;
+}
+
+/* ============ 便签模式真正透明窗口 ============ */
+
+/* 便签模式：移除根元素背景，实现真正透明 */
+body.sticky-note-mode {
+  background: transparent !important;
+}
+
+/* 便签模式：内容区域半透明背景 */
+body.sticky-note-mode .container,
+body.sticky-note-mode .preview {
+  background: rgba(255, 255, 255, var(--sticky-opacity, 0.85)) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 8px;
+}
+
+/* 深色模式适配 */
+body.dark-mode.sticky-note-mode .container,
+body.dark-mode.sticky-note-mode .preview {
+  background: rgba(31, 41, 55, var(--sticky-opacity, 0.85)) !important;
+}
+
+/* 透明度滑块容器 */
+.sticky-opacity-slider-container {
+  position: fixed;
+  top: 45px;
+  right: 10px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10001;
+  min-width: 150px;
+}
+
+body.dark-mode .sticky-opacity-slider-container {
+  background: rgba(31, 41, 55, 0.95);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.sticky-opacity-label {
+  font-size: 12px;
+  margin-bottom: 6px;
+  text-align: center;
+}
+
+.sticky-opacity-slider {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(127, 127, 127, 0.3);
+  outline: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.sticky-opacity-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #2563eb;
+  cursor: pointer;
 }
 
 /* 按钮容器 - 窗口顶部中央 */

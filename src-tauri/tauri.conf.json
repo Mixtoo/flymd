@@ -210,7 +210,8 @@
         "fullscreen": false,
         "decorations": true,
         "visible": false,
-        "devtools": true ,
+        "transparent": true,
+        "devtools": true,
         "dragDropEnabled": true
       }
     ]
