@@ -595,6 +595,10 @@ let _pluginsMenuBtn: HTMLDivElement | null = null // "插件"菜单按钮
 
 // 右键菜单管理
 const pluginContextMenuItems: PluginContextMenuItem[] = [] // 所有插件注册的右键菜单项
+
+// 协同/插件增强：选区变化监听与段落装饰（最小侵入）
+type PluginSelectionHandler = (sel: { start: number; end: number; text: string }) => void
+const pluginSelectionHandlers = new Map<string, PluginSelectionHandler>()
 let _contextMenuEl: HTMLDivElement | null = null // 当前显示的右键菜单元素
 let _contextMenuKeyHandler: ((e: KeyboardEvent) => void) | null = null
 let _libCtxKeyHandler: ((e: KeyboardEvent) => void) | null = null // 文件树右键菜单的键盘事件处理器
@@ -9543,8 +9547,8 @@ function bindEvents() {
   editor.addEventListener('input', () => { scheduleSaveDocPos() })
   editor.addEventListener('compositionend', () => { scheduleSaveDocPos() })
   editor.addEventListener('scroll', () => { scheduleSaveDocPos() })
-  editor.addEventListener('keyup', () => { scheduleSaveDocPos() })
-  editor.addEventListener('click', () => { scheduleSaveDocPos() })
+  editor.addEventListener('keyup', () => { scheduleSaveDocPos(); try { notifySelectionChangeForPlugins() } catch {} })
+  editor.addEventListener('click', () => { scheduleSaveDocPos(); try { notifySelectionChangeForPlugins() } catch {} })
 
   // 预览滚动也记录阅读位置
   preview.addEventListener('scroll', () => { scheduleSaveDocPos() })
@@ -9573,8 +9577,8 @@ function bindEvents() {
     dirty = true
     refreshTitle()
   })
-  editor.addEventListener('keyup', refreshStatus)
-  editor.addEventListener('click', refreshStatus)
+  editor.addEventListener('keyup', (ev) => { refreshStatus(ev); try { notifySelectionChangeForPlugins() } catch {} })
+  editor.addEventListener('click', (ev) => { refreshStatus(ev); try { notifySelectionChangeForPlugins() } catch {} })
   // 粘贴到编辑器：
   // - Ctrl+Shift+V：始终按纯文本粘贴（忽略 HTML/图片等富文本信息）
   // - 普通 Ctrl+V：优先将 HTML 转译为 Markdown；其次处理图片文件占位+异步上传；否则走默认粘贴
@@ -11238,6 +11242,16 @@ async function activatePlugin(p: InstalledPlugin): Promise<void> {
       return ''
     }
   }
+  const notifySelectionChangeForPlugins = () => {
+    try {
+      const sel = getSourceSelectionForPlugin()
+      for (const fn of pluginSelectionHandlers.values()) {
+        if (typeof fn === 'function') {
+          try { fn(sel) } catch (e) { console.error('[Plugin] onSelectionChange 失败', e) }
+        }
+      }
+    } catch {}
+  }
   const ctx = {
     http,
     invoke,
@@ -11422,24 +11436,34 @@ async function activatePlugin(p: InstalledPlugin): Promise<void> {
         console.error(`[Plugin ${p.id}] registerAPI 失败:`, e)
       }
     },
-    getPluginAPI: (namespace: string) => {
-      try {
-        if (!namespace || typeof namespace !== 'string') {
-          console.warn(`[Plugin ${p.id}] getPluginAPI: namespace 必须是非空字符串`)
+      getPluginAPI: (namespace: string) => {
+        try {
+          if (!namespace || typeof namespace !== 'string') {
+            console.warn(`[Plugin ${p.id}] getPluginAPI: namespace 必须是非空字符串`)
+            return null
+          }
+
+          const record = pluginAPIRegistry.get(namespace)
+          if (!record) {
+            return null
+          }
+
+          return record.api
+        } catch (e) {
+          console.error(`[Plugin ${p.id}] getPluginAPI 失败:`, e)
           return null
         }
-
-        const record = pluginAPIRegistry.get(namespace)
-        if (!record) {
-          return null
-        }
-
-        return record.api
-      } catch (e) {
-        console.error(`[Plugin ${p.id}] getPluginAPI 失败:`, e)
-        return null
-      }
-    },
+      },
+      // 编辑器源码选区变化监听（供协同等高级插件使用）
+      onSelectionChange: (listener: ((sel: { start: number; end: number; text: string }) => void) | null) => {
+        try {
+          if (!listener) {
+            pluginSelectionHandlers.delete(p.id)
+          } else {
+            pluginSelectionHandlers.set(p.id, listener)
+          }
+        } catch {}
+      },
     // 获取预览 DOM 元素（用于导出等功能）
     getPreviewElement: () => {
       try {
