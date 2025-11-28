@@ -2,7 +2,7 @@
 
 [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
 
-## Update v0.5.0 (Preview)
+## Update v0.5.0
 - Added: Sticky Note mode to open the current document in a compact, dedicated note window that automatically switches to Focus + Reading mode, hides the sidebar, and keeps only the content area—ideal for todos, small reference notes, and ideas that should stay on the desktop.
 - Added: Sticky Note controls with round "Lock position" and "Always on top" buttons, so you can disable window dragging to avoid accidental moves and keep notes floating above other apps.
 - Added: Enhanced tab right-click menu with "Open in new instance", direct file rename on disk, and one-click "Create sticky note" from the current tab.
