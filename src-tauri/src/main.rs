@@ -555,7 +555,8 @@ async fn check_update(_force: Option<bool>, include_prerelease: Option<bool>) ->
   let latest = releases.into_iter().find(|r| !r.draft && (include_pre || !r.prerelease))
     .ok_or_else(|| "no release found".to_string())?;
 
-  let latest_tag = latest.tag_name.trim().to_string();
+  // 统一版本号语义：从 tag_name 中剥离前缀 v，仅保留纯版本号（例如 v0.5.0 -> 0.5.0）
+  let latest_tag = latest.tag_name.trim().trim_start_matches('v').to_string();
   let n_cur = norm_ver(&current);
   let n_new = norm_ver(&latest_tag);
   let has_update = is_better(&n_new, &n_cur);

@@ -4347,10 +4347,7 @@ function setUpdateBadge(on: boolean, tip?: string) {
     if (!btn) return
     if (on) {
       btn.classList.add('has-update')
-      if (tip) {
-        // 清理“vv0.x.y”双v问题：将" vv"规整为" v"
-        btn.title = tip.replace(' vv', ' v')
-      }
+      if (tip) btn.title = tip
     } else {
       btn.classList.remove('has-update')
     }
@@ -4389,7 +4386,7 @@ function showUpdateDownloadedOverlay(savePath: string, resp: CheckUpdateResp) {
   const act = ov.querySelector('#update-actions') as HTMLDivElement
   const esc = (s: string) => (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
   body.innerHTML = `
-    <div style="margin-bottom:8px;">已下载新版本 <b>${resp.latest}</b>（当前 ${resp.current}）</div>
+    <div style="margin-bottom:8px;">已下载新版本 <b>v${resp.latest}</b>（当前 v${resp.current}）</div>
     <div>保存位置：<code>${esc(savePath)}</code></div>
   `
   act.innerHTML = ''
@@ -4415,7 +4412,7 @@ function showUpdateDownloadedOverlay(savePath: string, resp: CheckUpdateResp) {
     body.innerHTML = await renderUpdateDetailsHTML(resp, extra)
   } catch {
     body.innerHTML = `
-      <div style="margin-bottom:8px;">发现新版本：<b>${resp.latest}</b>（当前：${resp.current}）</div>
+      <div style="margin-bottom:8px;">发现新版本：<b>v${resp.latest}</b>（当前：v${resp.current}）</div>
       <div style="white-space:pre-wrap;max-height:240px;overflow:auto;border:1px solid var(--fg-muted);padding:8px;border-radius:6px;">${(resp.notes||'').replace(/</g,'&lt;')}</div>
     `
   }
@@ -4465,7 +4462,7 @@ async function checkUpdateInteractive() {
         await openInBrowser(resp.htmlUrl)
         return
       }
-      const ok = await confirmNative(`发现新版本 ${resp.latest}（当前 ${resp.current}）\n是否立即下载并安装？`, '更新')
+      const ok = await confirmNative(`发现新版本 v${resp.latest}（当前 v${resp.current}）\n是否立即下载并安装？`, '更新')
       if (!ok) {
         NotificationManager.show('appUpdate', '已取消更新', 3000)
         return
@@ -4512,7 +4509,7 @@ async function checkUpdateInteractive() {
     // macOS：自动下载并打开（根据返回的双资产选择）
     if (resp.assetMacosArm || resp.assetMacosX64) {
       const a = (resp.assetMacosArm || resp.assetMacosX64) as UpdateAssetInfo
-      const ok = await confirmNative(`发现新版本 ${resp.latest}（当前 ${resp.current}）\n是否立即下载并安装？`, '更新')
+      const ok = await confirmNative(`发现新版本 v${resp.latest}（当前 v${resp.current}）\n是否立即下载并安装？`, '更新')
       if (!ok) {
         NotificationManager.show('appUpdate', '已取消更新', 3000)
         return
