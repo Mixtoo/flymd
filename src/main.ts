@@ -587,6 +587,7 @@ const pluginAPIRegistry = new Map<string, PluginAPIRecord>()
 let _extOverlayEl: HTMLDivElement | null = null
 let _extListHost: HTMLDivElement | null = null
 let _extInstallInput: HTMLInputElement | null = null
+let _extMarketSearchText = ''
 
 // 插件菜单管理（统一的"插件"下拉菜单）
 type PluginMenuItem = { pluginId: string; label: string; onClick?: () => void; children?: any[] }
@@ -11846,6 +11847,17 @@ async function refreshExtensionsUI(): Promise<void> {
   channelWrap.appendChild(channelSelect)
   hd.appendChild(channelWrap)
 
+  const searchWrap = document.createElement('div'); searchWrap.className = 'ext-market-search'
+  const searchInput = document.createElement('input'); searchInput.type = 'text'; searchInput.className = 'ext-market-search-input'
+  searchInput.placeholder = t('ext.market.search.placeholder')
+  if (_extMarketSearchText) searchInput.value = _extMarketSearchText
+  searchInput.addEventListener('input', () => {
+    _extMarketSearchText = searchInput.value || ''
+    void applyMarketFilter()
+  })
+  searchWrap.appendChild(searchInput)
+  hd.appendChild(searchWrap)
+
   const btnRefresh = document.createElement('button'); btnRefresh.className = 'btn'; btnRefresh.textContent = t('ext.refresh')
   btnRefresh.addEventListener('click', async () => {
     try {
@@ -11900,6 +11912,106 @@ async function refreshExtensionsUI(): Promise<void> {
   // 3) 并行加载“已安装扩展列表”和“市场索引”，避免无谓的串行等待
   let installedMap: Record<string, InstalledPlugin> = {}
   let marketItems: InstallableItem[] = []
+
+  async function applyMarketFilter(): Promise<void> {
+    try {
+      const source = Array.isArray(marketItems) ? marketItems : []
+      if (!source || source.length === 0) {
+        list3.innerHTML = ''
+        list3.appendChild(createLoadingIndicator())
+        return
+      }
+      const keywordRaw = (_extMarketSearchText || '').trim().toLowerCase()
+      let items = source
+      if (keywordRaw) {
+        items = source.filter((it) => {
+          try {
+            const parts: string[] = []
+            if (it.name) parts.push(String(it.name))
+            if (it.id) parts.push(String(it.id))
+            if (it.description) parts.push(String(it.description))
+            if (it.author) parts.push(String(it.author))
+            const hay = parts.join(' ').toLowerCase()
+            return hay.includes(keywordRaw)
+          } catch {
+            return true
+          }
+        })
+      }
+      list3.textContent = ''
+      if (!items.length) {
+        const empty = document.createElement('div'); empty.className = 'ext-empty'; empty.textContent = t('ext.market.empty.search')
+        list3.appendChild(empty)
+        return
+      }
+      for (const it of items) {
+        const row = document.createElement('div'); row.className = 'ext-item'
+        const meta = document.createElement('div'); meta.className = 'ext-meta'
+        const name = document.createElement('div'); name.className = 'ext-name'
+        const spanName = document.createElement('span'); spanName.textContent = String(it.name || it.id)
+        name.appendChild(spanName)
+        try {
+          if ((it as any).featured === true) {
+            const badge = document.createElement('span')
+            badge.className = 'ext-tag'
+            badge.textContent = '推荐'
+            badge.style.marginLeft = '8px'
+            badge.style.color = '#f97316'
+            name.appendChild(badge)
+          }
+        } catch {}
+        const desc = document.createElement('div'); desc.className = 'ext-desc'
+        if (it.description) {
+          const descText = document.createElement('span'); descText.textContent = it.description
+          desc.appendChild(descText)
+        }
+        if (it.author || it.homepage) {
+          const spacing = document.createTextNode('  ')
+          desc.appendChild(spacing)
+          if (it.author) {
+            const authorSpan = document.createElement('span'); authorSpan.textContent = t('ext.author') + (it.author || '')
+            desc.appendChild(authorSpan)
+            if (it.homepage) { desc.appendChild(document.createTextNode(' ')) }
+          }
+          if (it.homepage) {
+            const a = document.createElement('a'); a.href = it.homepage!; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = t('ext.homepage')
+            a.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); try { void openInBrowser(it.homepage!) } catch {} })
+            desc.appendChild(a)
+          }
+        }
+        meta.appendChild(name); meta.appendChild(desc)
+        const actions = document.createElement('div'); actions.className = 'ext-actions'
+        const btnInstall = document.createElement('button'); btnInstall.className = 'btn primary'; btnInstall.textContent = t('ext.install.btn')
+        try {
+          const installedMap2 = await getInstalledPlugins()
+          const exists = installedMap2[it.id]
+          if (exists) { btnInstall.textContent = t('ext.install.ok'); (btnInstall as HTMLButtonElement).disabled = true }
+        } catch {}
+        btnInstall.addEventListener('click', async () => {
+          try {
+            btnInstall.textContent = t('ext.install.btn') + '...'; (btnInstall as HTMLButtonElement).disabled = true
+            const rec = await installPluginFromGit(it.install.ref)
+            await activatePlugin(rec)
+            await refreshExtensionsUI()
+            pluginNotice('安装成功', 'ok', 1500)
+          } catch (e) {
+            try { btnInstall.textContent = '安装' } catch {}
+            try { (btnInstall as HTMLButtonElement).disabled = false } catch {}
+            void appendLog('ERROR', '安装扩展失败', e)
+            const errMsg = (e instanceof Error) ? e.message : String(e)
+            pluginNotice('安装扩展失败' + (errMsg ? ': ' + errMsg : ''), 'err', 3000)
+          }
+        })
+        actions.appendChild(btnInstall)
+        row.appendChild(meta); row.appendChild(actions)
+        list3.appendChild(row)
+      }
+    } catch {
+      list3.innerHTML = ''
+      list3.appendChild(createLoadingIndicator())
+    }
+  }
+
   try {
     installedMap = await getInstalledPlugins()
   } catch { installedMap = {} }
@@ -12054,80 +12166,7 @@ async function refreshExtensionsUI(): Promise<void> {
   }
 
   // 5) 填充"可安装的扩展"区块（扩展市场）
-  try {
-    const items = marketItems
-    if (!items || items.length === 0) {
-      list3.innerHTML = ''
-      list3.appendChild(createLoadingIndicator())
-      return
-    }
-    list3.textContent = ''
-    for (const it of items) {
-      const row = document.createElement('div'); row.className = 'ext-item'
-      const meta = document.createElement('div'); meta.className = 'ext-meta'
-      const name = document.createElement('div'); name.className = 'ext-name'
-      const spanName = document.createElement('span'); spanName.textContent = String(it.name || it.id)
-      name.appendChild(spanName)
-      try {
-        if ((it as any).featured === true) {
-          const badge = document.createElement('span')
-          badge.className = 'ext-tag'
-          badge.textContent = '推荐'
-          badge.style.marginLeft = '8px'
-          badge.style.color = '#f97316'
-          name.appendChild(badge)
-        }
-      } catch {}
-      const desc = document.createElement('div'); desc.className = 'ext-desc'
-      if (it.description) {
-        const descText = document.createElement('span'); descText.textContent = it.description
-        desc.appendChild(descText)
-      }
-      if (it.author || it.homepage) {
-        const spacing = document.createTextNode('  ')
-        desc.appendChild(spacing)
-        if (it.author) {
-          const authorSpan = document.createElement('span'); authorSpan.textContent = t('ext.author') + (it.author || '')
-          desc.appendChild(authorSpan)
-          if (it.homepage) { desc.appendChild(document.createTextNode(' ')) }
-        }
-        if (it.homepage) {
-          const a = document.createElement('a'); a.href = it.homepage!; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = t('ext.homepage')
-          a.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); try { void openInBrowser(it.homepage!) } catch {} })
-          desc.appendChild(a)
-        }
-      }
-      meta.appendChild(name); meta.appendChild(desc)
-      const actions = document.createElement('div'); actions.className = 'ext-actions'
-      const btnInstall = document.createElement('button'); btnInstall.className = 'btn primary'; btnInstall.textContent = t('ext.install.btn')
-      try {
-        const installedMap2 = await getInstalledPlugins()
-        const exists = installedMap2[it.id]
-        if (exists) { btnInstall.textContent = t('ext.install.ok'); (btnInstall as HTMLButtonElement).disabled = true }
-      } catch {}
-      btnInstall.addEventListener('click', async () => {
-        try {
-          btnInstall.textContent = t('ext.install.btn') + '...'; (btnInstall as HTMLButtonElement).disabled = true
-          const rec = await installPluginFromGit(it.install.ref)
-          await activatePlugin(rec)
-          await refreshExtensionsUI()
-          pluginNotice('安装成功', 'ok', 1500)
-        } catch (e) {
-          try { btnInstall.textContent = '安装' } catch {}
-          try { (btnInstall as HTMLButtonElement).disabled = false } catch {}
-          void appendLog('ERROR', '安装扩展失败', e)
-          const errMsg = (e instanceof Error) ? e.message : String(e)
-          pluginNotice('安装扩展失败' + (errMsg ? ': ' + errMsg : ''), 'err', 3000)
-        }
-      })
-      actions.appendChild(btnInstall)
-      row.appendChild(meta); row.appendChild(actions)
-      list3.appendChild(row)
-    }
-  } catch {
-    list3.innerHTML = ''
-    list3.appendChild(createLoadingIndicator())
-  }
+  await applyMarketFilter()
 }
 
 async function removeDirRecursive(dir: string): Promise<void> {
@@ -12246,6 +12285,7 @@ async function showExtensionsOverlay(show: boolean): Promise<void> {
   ensureExtensionsOverlayMounted()
   if (!_extOverlayEl) return
   if (show) {
+    _extMarketSearchText = ''
     _extOverlayEl.classList.add('show')
     await refreshExtensionsUI()
   } else {

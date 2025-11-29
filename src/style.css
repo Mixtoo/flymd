@@ -25,10 +25,10 @@
   /* 便签模式前景色（可选覆盖） */
   --sticky-fg: ;
   /* 表格颜色变量（自动适配亮/暗主题） */
-  --table-border: #d0d7de;
-  --table-header-bg: #f6f8fa;
-  --table-header-fg: #24292f;
-  --table-row-hover: #f6f8fa;
+  --table-border: #cbd5e1;
+  --table-header-bg: #f1f5f9;
+  --table-header-fg: #1e293b;
+  --table-row-hover: #f8fafc;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -723,22 +723,39 @@ body > .block-menu { display: none !important; }
 .container.wysiwyg-v2 .ProseMirror table {
   width: auto;
   max-width: 100%;
-  border-collapse: collapse;
-  border: 1px solid #d1d5db;
-  margin: 1em 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1.5px solid var(--table-border);
+  margin: 1.5em 0;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 .container.wysiwyg-v2 .ProseMirror th,
 .container.wysiwyg-v2 .ProseMirror td {
-  border: 1px solid #d1d5db;
-  padding: 8px 12px;
+  border-right: 1px solid var(--table-border);
+  border-bottom: 1px solid var(--table-border);
+  padding: 10px 14px;
   text-align: left;
+  vertical-align: middle;
+  transition: background 0.15s ease;
+}
+.container.wysiwyg-v2 .ProseMirror th:last-child,
+.container.wysiwyg-v2 .ProseMirror td:last-child {
+  border-right: none;
+}
+.container.wysiwyg-v2 .ProseMirror tr:last-child td {
+  border-bottom: none;
 }
 .container.wysiwyg-v2 .ProseMirror th {
-  background: #f9fafb;
+  background: var(--table-header-bg);
+  color: var(--table-header-fg);
   font-weight: 600;
 }
+.container.wysiwyg-v2 .ProseMirror tbody tr:nth-child(even) {
+  background: rgba(241, 245, 249, 0.5);
+}
 .container.wysiwyg-v2 .ProseMirror tbody tr:hover {
-  background: #f9fafb;
+  background: var(--table-row-hover);
 }
 .container.wysiwyg-v2 .ProseMirror:focus { outline: none; }
 .container.wysiwyg-v2 .ProseMirror p { margin: 1em 0; }
@@ -2434,6 +2451,14 @@ body.focus-mode .lib-float-toggle.show { display: flex; }
 .container.md-bear.wysiwyg-v2 .ProseMirror a { color: #e53935; }
 
 @media (prefers-color-scheme: dark) {
+  /* 所见模式表格深色主题优化 */
+  .container.wysiwyg-v2 .ProseMirror table {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  }
+  .container.wysiwyg-v2 .ProseMirror tbody tr:nth-child(even) {
+    background: rgba(31, 41, 55, 0.4);
+  }
+
   .container.md-card .preview pre { background: #0f1114; border-color: #262a33; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
   .container.md-card .preview :not(pre) > code { background: #13161a; border-color: #262a33; }
 
@@ -3016,7 +3041,7 @@ html, body { overflow: hidden; }
   margin-bottom: 12px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
 }
 
 .ext-market-channel {
@@ -3041,6 +3066,31 @@ html, body { overflow: hidden; }
   font-size: 12px;
 }
 .ext-market-channel-select:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.25);
+}
+
+.ext-market-search {
+  margin-left: 12px;
+}
+
+.ext-market-search-input {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(127,127,127,0.04);
+  color: var(--fg);
+  font-size: 12px;
+  min-width: 160px;
+}
+
+.ext-market-search-input::placeholder {
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+.ext-market-search-input:focus {
   outline: none;
   border-color: #2563eb;
   box-shadow: 0 0 0 2px rgba(37,99,235,0.25);
@@ -4368,21 +4418,28 @@ body.dark-mode .ProseMirror a {
 }
 
 body.dark-mode .ProseMirror table {
-  border-color: #4b5563 !important;
+  border-color: var(--table-border) !important;
+  border-width: 1.5px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4) !important;
 }
 
 body.dark-mode .ProseMirror table th,
 body.dark-mode .ProseMirror table td {
-  border-color: #4b5563 !important;
+  border-color: var(--table-border) !important;
   color: #e5e7eb !important;
 }
 
 body.dark-mode .ProseMirror table th {
-  background: #1f2937 !important;
+  background: var(--table-header-bg) !important;
+  color: var(--table-header-fg) !important;
+}
+
+body.dark-mode .ProseMirror tbody tr:nth-child(even) {
+  background: rgba(31, 41, 55, 0.4) !important;
 }
 
 body.dark-mode .ProseMirror tbody tr:hover {
-  background: rgba(55, 65, 81, 0.3) !important;
+  background: var(--table-row-hover) !important;
 }
 
 body.dark-mode .ProseMirror hr {
