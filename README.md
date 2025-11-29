@@ -351,7 +351,7 @@ FlyMD 支持通过扩展插件增强功能：
 ⭐⭐⭐[rightcode](https://www.right.codes/register?aff=E8E36524) **:稳定性和性价比都极高的Claude和codex**
 
 
-⭐⭐⭐[PackyCode]（https://www.packyapi.com/register?aff=Rqk1）**同样高性价比的Claude、codex、Gemini**
+⭐⭐⭐ [PackyCode](https://www.packyapi.com/register?aff=Rqk1) **同样高性价比的Claude、codex、Gemini**
 
 
 通过以下链接注册可以帮助我节省开发成本，您也能获得部分赠金：
