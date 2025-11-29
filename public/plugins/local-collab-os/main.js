@@ -68,7 +68,8 @@ function applyEditorCaretColor(enabled) {
 }
 
 function colorFromName(name) {
-  const palette = ['#ff7675', '#74b9ff', '#55efc4', '#ffeaa7', '#a29bfe', '#fd79a8', '#81ecec', '#fab1a0']
+  // 使用更高对比度的调色板，提升可见度（尤其是浅色背景下）
+  const palette = ['#ff1744', '#d500f9', '#651fff', '#2962ff', '#00c853', '#ffd600', '#ff9100', '#00bfa5']
   const s = String(name || 'user')
   let h = 0
   for (let i = 0; i < s.length; i++) {
