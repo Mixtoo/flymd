@@ -5398,6 +5398,25 @@ body.sticky-note-mode li.task-list-item {
   padding: 1px 0 !important;
 }
 
+/* 便签模式：标题紧凑化 */
+body.sticky-note-mode .preview-body h1,
+body.sticky-note-mode .preview-body h2,
+body.sticky-note-mode .preview-body h3,
+body.sticky-note-mode .preview-body h4,
+body.sticky-note-mode .preview-body h5,
+body.sticky-note-mode .preview-body h6 {
+  margin-top: 0.5em !important;
+  margin-bottom: 0.3em !important;
+  color: var(--sticky-fg, var(--fg));
+  text-shadow: var(--sticky-text-shadow, none);
+}
+body.sticky-note-mode .preview-body h1 { font-size: 1.3em !important; }
+body.sticky-note-mode .preview-body h2 { font-size: 1.2em !important; }
+body.sticky-note-mode .preview-body h3 { font-size: 1.1em !important; }
+body.sticky-note-mode .preview-body h4,
+body.sticky-note-mode .preview-body h5,
+body.sticky-note-mode .preview-body h6 { font-size: 1em !important; }
+
 /* 便签模式：删除线只应用在文字内容上，不影响图标 */
 body.sticky-note-mode li.task-list-item:has(input.task-list-item-checkbox:checked) {
   text-decoration: none !important;
@@ -5405,6 +5424,44 @@ body.sticky-note-mode li.task-list-item:has(input.task-list-item-checkbox:checke
 
 body.sticky-note-mode li.task-list-item:has(input.task-list-item-checkbox:checked) .task-content {
   text-decoration: line-through;
+  opacity: 0.5;
+  color: var(--muted, #888);
+}
+
+/* 便签模式：代码块可读性优化 */
+body.sticky-note-mode .preview-body code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+body.sticky-note-mode .preview-body pre {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-radius: 6px;
+  padding: 8px !important;
+  margin: 8px 0 !important;
+}
+body.sticky-note-mode .preview-body pre code {
+  background: transparent;
+  padding: 0;
+}
+
+/* 便签模式：链接样式 */
+body.sticky-note-mode .preview-body a {
+  color: #2563eb;
+  text-decoration: none;
+}
+body.sticky-note-mode .preview-body a:hover {
+  text-decoration: underline;
+}
+
+/* 便签模式：引用块样式 */
+body.sticky-note-mode .preview-body blockquote {
+  margin: 8px 0 !important;
+  padding: 4px 12px !important;
+  border-left: 3px solid rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 0 4px 4px 0;
 }
 
 /* ============ 便签模式真正透明窗口 ============ */
@@ -5420,7 +5477,60 @@ body.sticky-note-mode .preview {
   background: rgba(var(--sticky-rgb, 255, 255, 255), var(--sticky-opacity, 0.85)) !important;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border-radius: 8px;
+  border-radius: 4px;
+  border: none !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  transition: background 0.3s ease, backdrop-filter 0.3s ease;
+}
+
+/* 便签模式：右下角卷角效果 */
+body.sticky-note-mode .container {
+  position: relative;
+  overflow: hidden;
+  border-radius: 4px 4px 4px 4px;
+}
+body.sticky-note-mode .container::before {
+  content: '';
+  position: absolute;
+  bottom: -12px;
+  right: -12px;
+  width: 24px;
+  height: 24px;
+  background: linear-gradient(135deg, transparent 50%, rgba(0, 0, 0, 0.1) 50%);
+  transform: rotate(0deg);
+  z-index: 10;
+}
+body.sticky-note-mode .container::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  background: linear-gradient(
+    135deg,
+    rgba(var(--sticky-rgb, 255, 255, 255), 1) 0%,
+    rgba(var(--sticky-rgb, 255, 255, 255), 0.9) 45%,
+    rgba(0, 0, 0, 0.08) 50%,
+    rgba(0, 0, 0, 0.12) 100%
+  );
+  box-shadow: -1px -1px 3px rgba(0, 0, 0, 0.08);
+  z-index: 11;
+}
+
+/* 便签模式：滚动条优化 */
+body.sticky-note-mode .preview::-webkit-scrollbar {
+  width: 4px;
+}
+body.sticky-note-mode .preview::-webkit-scrollbar-track {
+  background: transparent;
+}
+body.sticky-note-mode .preview::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 2px;
+}
+body.sticky-note-mode .preview::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
 }
 
 /* 透明度滑块容器 */
@@ -5542,7 +5652,7 @@ body.sticky-note-mode .sticky-note-controls {
 }
 
 /* 便签模式顶部控制按钮：简洁无背景样式 */
-.sticky-note-btn {
+body.sticky-note-mode .sticky-note-btn {
   background: none;
   border: none;
   border-radius: 50%;
@@ -5558,35 +5668,35 @@ body.sticky-note-mode .sticky-note-controls {
   opacity: 0.5;
 }
 
-.sticky-note-btn:hover {
+body.sticky-note-mode .sticky-note-btn:hover {
   opacity: 0.9;
   color: var(--fg);
   transform: scale(1.1);
 }
 
 /* 激活状态 */
-.sticky-note-btn.active {
+body.sticky-note-mode .sticky-note-btn.active {
   opacity: 1;
   color: #2563eb;
 }
 
-.sticky-note-btn.active:hover {
+body.sticky-note-mode .sticky-note-btn.active:hover {
   opacity: 1;
 }
 
 /* 深色/夜间模式适配 */
 @media (prefers-color-scheme: dark) {
-  .sticky-note-btn.active {
+  body.sticky-note-mode .sticky-note-btn.active {
     color: #60a5fa;
   }
 }
 
-body.dark-mode .sticky-note-btn.active {
+body.dark-mode.sticky-note-mode .sticky-note-btn.active {
   color: #60a5fa;
 }
 
 /* 新建待办按钮（+号）样式调整 */
-.sticky-note-btn:last-child {
+body.sticky-note-mode .sticky-note-btn:last-child {
   font-size: 20px;
   font-weight: 300;
 }
@@ -5713,6 +5823,43 @@ body.dark-mode.sticky-note-mode .task-tooltip {
   color: #1a1a1a;
 }
 
+/* 便签模式：夜间模式适配 */
+body.dark-mode.sticky-note-mode .container,
+body.dark-mode.sticky-note-mode .preview {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+body.dark-mode.sticky-note-mode .preview::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+body.dark-mode.sticky-note-mode .preview::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+body.dark-mode.sticky-note-mode .preview-body code {
+  background: rgba(255, 255, 255, 0.1);
+}
+body.dark-mode.sticky-note-mode .preview-body pre {
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+body.dark-mode.sticky-note-mode .preview-body blockquote {
+  border-left-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.03);
+}
+body.dark-mode.sticky-note-mode .preview-body a {
+  color: #60a5fa;
+}
+body.dark-mode.sticky-note-mode .container::before {
+  background: linear-gradient(135deg, transparent 50%, rgba(255, 255, 255, 0.05) 50%);
+}
+body.dark-mode.sticky-note-mode .container::after {
+  background: linear-gradient(
+    135deg,
+    rgba(var(--sticky-rgb, 40, 40, 40), 1) 0%,
+    rgba(var(--sticky-rgb, 40, 40, 40), 0.9) 45%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 255, 255, 0.1) 100%
+  );
+  box-shadow: -1px -1px 3px rgba(0, 0, 0, 0.2);
+}
 /* 便签模式：待办项按钮简洁样式 */
 body.sticky-note-mode .sticky-todo-btn {
   background: none;

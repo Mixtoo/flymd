@@ -3910,8 +3910,8 @@ async function renderPreview() {
       preview.innerHTML = ''
       preview.appendChild(buf)
       try { decorateCodeBlocks(preview) } catch {}
-      // 便签模式：为待办项添加推送和提醒按钮
-      try { if (stickyNoteMode) { addStickyTodoButtons() } } catch {}
+      // 便签模式：为待办项添加推送和提醒按钮，并自动调整窗口高度
+      try { if (stickyNoteMode) { addStickyTodoButtons(); scheduleAdjustStickyHeight() } } catch {}
       // 预览更新后自动刷新大纲（节流由内部逻辑与渲染频率保障）
       try { renderOutlinePanel() } catch {}
     } catch {}
@@ -7305,6 +7305,53 @@ async function handleStickyTodoReminder(todoText: string, index: number, btn?: H
   }
 }
 
+// 便签模式：自动调整窗口高度以适应内容
+const STICKY_MIN_HEIGHT = 150
+const STICKY_MAX_HEIGHT = 600
+const STICKY_WIDTH = 400
+let _stickyAutoHeightTimer: number | null = null
+
+async function adjustStickyWindowHeight() {
+  if (!stickyNoteMode) return
+  try {
+    // 获取预览内容的实际高度
+    const previewBody = preview.querySelector('.preview-body') as HTMLElement | null
+    if (!previewBody) return
+
+    // 计算内容高度 + 顶部控制栏高度 + 边距
+    const contentHeight = previewBody.scrollHeight
+    const controlsHeight = 50 // 顶部控制按钮区域
+    const padding = 30 // 上下边距
+
+    let targetHeight = contentHeight + controlsHeight + padding
+    // 限制在最小/最大范围内
+    targetHeight = Math.max(STICKY_MIN_HEIGHT, Math.min(STICKY_MAX_HEIGHT, targetHeight))
+
+    const win = getCurrentWindow()
+    const currentSize = await win.innerSize()
+
+    // 仅当高度变化超过 10px 时才调整，避免频繁抖动
+    if (Math.abs(currentSize.height - targetHeight) > 10) {
+      const { LogicalSize } = await import('@tauri-apps/api/dpi')
+      await win.setSize(new LogicalSize(STICKY_WIDTH, targetHeight))
+    }
+  } catch (e) {
+    console.error('[便签模式] 调整窗口高度失败:', e)
+  }
+}
+
+// 节流版本的高度调整
+function scheduleAdjustStickyHeight() {
+  if (!stickyNoteMode) return
+  if (_stickyAutoHeightTimer) {
+    clearTimeout(_stickyAutoHeightTimer)
+  }
+  _stickyAutoHeightTimer = window.setTimeout(() => {
+    _stickyAutoHeightTimer = null
+    void adjustStickyWindowHeight()
+  }, 100)
+}
+
 // 创建便签控制按钮（编辑 + 锁定 + 置顶）
 function createStickyNoteControls() {
   const existing = document.getElementById('sticky-note-controls')
@@ -7468,6 +7515,11 @@ async function enterStickyNoteMode(filePath: string) {
   } catch (e) {
     console.error('[便签模式] 加载透明度失败:', e)
   }
+
+  // 9. 延迟调整窗口高度以适应内容
+  setTimeout(() => {
+    scheduleAdjustStickyHeight()
+  }, 300)
 }
 
 // ========== 便签模式结束 ==========
