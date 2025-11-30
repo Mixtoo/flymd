@@ -50,7 +50,7 @@ import goodImgUrl from '../good.png?url'
 import { decorateCodeBlocks } from './decorate'
 import pkg from '../package.json'
 // htmlToMarkdown 改为按需动态导入（仅在粘贴 HTML 时使用）
-import { initWebdavSync, openWebdavSyncDialog, getWebdavSyncConfig, syncNow as webdavSyncNow, setOnSyncComplete, openSyncLog as webdavOpenSyncLog } from './extensions/webdavSync'
+import { initWebdavSync, openWebdavSyncDialog, getWebdavSyncConfig, isWebdavConfiguredForActiveLibrary, syncNow as webdavSyncNow, setOnSyncComplete, openSyncLog as webdavOpenSyncLog } from './extensions/webdavSync'
 // 平台适配层（Android 支持）
 import { initPlatformIntegration, mobileSaveFile, isMobilePlatform } from './platform-integration'
 // 应用版本号（用于窗口标题/关于弹窗）
@@ -809,11 +809,15 @@ async function buildBuiltinContextMenuItems(): Promise<ContextMenuItemConfig[]> 
   const items: ContextMenuItemConfig[] = []
   const syncCfg = await (async () => { try { return await getWebdavSyncConfig() } catch { return null as any } })()
   const syncEnabled = !!syncCfg?.enabled
+  const syncConfigured = await (async () => { try { return await isWebdavConfiguredForActiveLibrary() } catch { return false } })()
+  let syncNote = ''
+  if (!syncConfigured) syncNote = '当前库未配置 WebDAV，同步已禁用'
+  else if (!syncEnabled) syncNote = '未启用'
   items.push({
     label: t('sync.now') || '立即同步',
     icon: '🔁',
-    note: syncEnabled ? '' : '未启用',
-    disabled: !syncEnabled,
+    note: syncNote,
+    disabled: !syncEnabled || !syncConfigured,
     onClick: async () => { await handleManualSyncFromMenu() }
   })
   items.push({

@@ -545,6 +545,45 @@ export async function getWebdavSyncConfig(): Promise<WebdavSyncConfig> {
   return buildWebdavConfigFromRaw(rawCfg)
 }
 
+// 判断当前库是否已经显式配置过 WebDAV（用于 UI 提示）
+export async function isWebdavConfiguredForActiveLibrary(): Promise<boolean> {
+  const store = await getStore()
+  const raw = (await store.get('sync')) as any
+
+  const libId = await (async () => {
+    try { return await getActiveLibraryId() } catch { return null }
+  })()
+  if (!libId) return false
+
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return false
+  }
+
+  if (raw.profiles && typeof raw.profiles === 'object' && !Array.isArray(raw.profiles)) {
+    const profiles = raw.profiles as Record<string, any>
+    const cfg = profiles[libId]
+    if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return false
+    const base = typeof cfg.baseUrl === 'string' ? cfg.baseUrl.trim() : ''
+    const user = typeof cfg.username === 'string' ? cfg.username.trim() : ''
+    const pass = typeof cfg.password === 'string' ? cfg.password.trim() : ''
+    const enabled = cfg.enabled === true
+    const root = typeof cfg.rootPath === 'string' ? cfg.rootPath.trim() : ''
+    return !!(base || user || pass || enabled || (root && root !== '/flymd'))
+  }
+
+  // 旧形态：整份 sync 就是一份配置，视为“已配置”
+  if (isLegacySyncConfigShape(raw)) {
+    const base = typeof raw.baseUrl === 'string' ? raw.baseUrl.trim() : ''
+    const user = typeof raw.username === 'string' ? raw.username.trim() : ''
+    const pass = typeof raw.password === 'string' ? raw.password.trim() : ''
+    const enabled = raw.enabled === true
+    const root = typeof raw.rootPath === 'string' ? raw.rootPath.trim() : ''
+    return !!(base || user || pass || enabled || (root && root !== '/flymd'))
+  }
+
+  return false
+}
+
 // 为当前激活库写入 WebDAV 配置（每个库有独立 profile）
 export async function setWebdavSyncConfig(next: Partial<WebdavSyncConfig>): Promise<void> {
   const store = await getStore()
@@ -1643,8 +1682,23 @@ export async function syncNow(reason: SyncReason): Promise<{ uploaded: number; d
             if (cfg.confirmDeleteRemote !== false) {
               // 需要确认：询问用户
               await syncLog('[local-deleted] ' + act.rel + ' 询问用户如何处理')
-              const result = await showLocalDeleteDialog(act.rel)
-              userChoice = result === 'confirm'
+              try {
+                const result = await showLocalDeleteDialog(act.rel)
+                userChoice = result === 'confirm'
+              } catch (e) {
+                // 自定义对话框失败时兜底使用系统对话框，避免静默跳过
+                await syncLog('[local-deleted-dialog-error] ' + act.rel + ' 自定义对话框失败，将回退到系统对话框: ' + ((e as any)?.message || e))
+                try {
+                  const ok = await ask(
+                    '文件：' + act.rel + '\n\n此文件在上次同步后被本地删除。\n是否同步删除远程文件？\n\n选择“是”将删除远程文件，选择“否”将从远程恢复到本地。',
+                    { title: 'WebDAV 同步 - 本地删除确认', kind: 'warning' } as any
+                  )
+                  userChoice = !!ok
+                } catch (e2) {
+                  await syncLog('[local-deleted-dialog-fatal] ' + act.rel + ' 所有对话框均失败，默认保留远程文件: ' + ((e2 as any)?.message || e2))
+                  userChoice = false
+                }
+              }
             } else {
               // 不需要确认：直接删除远程文件
               await syncLog('[local-deleted] ' + act.rel + ' 自动删除远程文件（已禁用确认）')
