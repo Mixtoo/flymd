@@ -11619,22 +11619,63 @@ async function activatePlugin(p: InstalledPlugin): Promise<void> {
           } else {
             pluginSelectionHandlers.set(p.id, listener)
           }
-        } catch {}
+       } catch {}
       },
-    // 获取预览 DOM 元素（用于导出等功能）
-    getPreviewElement: () => {
-      try {
-        return preview.querySelector('.preview-body') as HTMLElement | null
-      } catch (e) {
-        console.error(`[Plugin ${p.id}] getPreviewElement 失败:`, e)
-        return null
-      }
-    },
-    // 弹出保存对话框并保存二进制文件
-    saveFileWithDialog: async (opt: { filters?: Array<{ name: string, extensions: string[] }>, data: Uint8Array, defaultName?: string }) => {
-      try {
-        if (typeof save !== 'function' || typeof writeFile !== 'function') {
-          throw new Error('文件保存功能需要在 Tauri 应用中使用')
+     // 获取预览 DOM 元素（用于导出等功能）
+     getPreviewElement: () => {
+       try {
+         return preview.querySelector('.preview-body') as HTMLElement | null
+       } catch (e) {
+         console.error(`[Plugin ${p.id}] getPreviewElement 失败:`, e)
+         return null
+       }
+     },
+     // 读取本地图片并返回 data URL，供视觉类插件使用
+     readImageAsDataUrl: async (absPath: string) => {
+       try {
+         if (typeof readFile !== 'function') {
+           throw new Error('读取图片功能需要在 Tauri 应用中使用')
+         }
+         const abs = String(absPath || '').trim()
+         if (!abs) {
+           throw new Error('absPath 不能为空')
+         }
+         const bytes = await readFile(abs as any)
+         const mime = (() => {
+           const m = abs.toLowerCase().match(/\.([a-z0-9]+)$/)
+           switch (m?.[1]) {
+             case 'jpg':
+             case 'jpeg': return 'image/jpeg'
+             case 'png': return 'image/png'
+             case 'gif': return 'image/gif'
+             case 'webp': return 'image/webp'
+             case 'bmp': return 'image/bmp'
+             case 'avif': return 'image/avif'
+             case 'ico': return 'image/x-icon'
+             case 'svg': return 'image/svg+xml'
+             default: return 'application/octet-stream'
+           }
+         })()
+         const blob = new Blob([bytes], { type: mime })
+         const dataUrl = await new Promise<string>((resolve, reject) => {
+           try {
+             const fr = new FileReader()
+             fr.onerror = () => reject(fr.error || new Error('读取图片失败'))
+             fr.onload = () => resolve(String(fr.result || ''))
+             fr.readAsDataURL(blob)
+           } catch (e) { reject(e as any) }
+         })
+         return dataUrl
+       } catch (e) {
+         console.error(`[Plugin ${p.id}] readImageAsDataUrl 失败:`, e)
+         throw e
+       }
+     },
+     // 弹出保存对话框并保存二进制文件
+     saveFileWithDialog: async (opt: { filters?: Array<{ name: string, extensions: string[] }>, data: Uint8Array, defaultName?: string }) => {
+       try {
+         if (typeof save !== 'function' || typeof writeFile !== 'function') {
+           throw new Error('文件保存功能需要在 Tauri 应用中使用')
         }
         if (!opt || !opt.data) {
           throw new Error('缺少 data 参数')
