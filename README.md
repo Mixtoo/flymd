@@ -92,7 +92,8 @@
 **支持可视化交互**
 
 
-![PixPin_2025-11-29_11-55-42](https://github.com/user-attachments/assets/c4c04fa6-00da-42f5-b12e-9a31de16b59e)
+![AI对话联动推送和便签](https://github.com/user-attachments/assets/016617fa-1971-4711-8c5e-1398a1b0aa52)
+
 
 ### 💻 平台与格式
 
