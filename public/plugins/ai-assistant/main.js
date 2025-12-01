@@ -11,8 +11,8 @@ const SES_KEY = 'ai.session.default'
 
 const FREE_MODEL_OPTIONS = {
   qwen: { label: 'Qwen', id: 'Qwen/Qwen3-8B' },
-  qwen_omni: { label: 'Omin👁', id: 'Qwen/Qwen3-Omni-30B-A3B-Instruct', vision: true },
-  gemini: { label: 'Gemini👁', id: 'gemini-2.5-flash', vision: true },
+  qwen_omni: { label: 'Omin Vision', id: 'Qwen/Qwen3-Omni-30B-A3B-Instruct', vision: true },
+  gemini: { label: 'Gemini Vision', id: 'gemini-2.5-flash', vision: true },
   glm: { label: 'GLM', id: 'THUDM/glm-4-9b-chat' }
 }
 const DEFAULT_FREE_MODEL_KEY = 'qwen'
@@ -261,6 +261,26 @@ function resolvePluginAsset(rel){
   return `plugins/ai-assistant/${clean}`
 }
 function isFreeProvider(cfg){ return !!cfg && cfg.provider === 'free' }
+
+// 本地图片大小上限（字节）：默认 1MB，用于视觉模式和对话框粘贴图片
+const MAX_LOCAL_IMAGE_BYTES = 1024 * 1024
+
+function estimateDataUrlBytes(dataUrl){
+  try {
+    const m = typeof dataUrl === 'string' ? dataUrl.match(/^data:[^;]+;base64,(.+)$/) : null
+    if (!m || !m[1]) return 0
+    const b64 = m[1]
+    const len = b64.length
+    if (!len) return 0
+    return Math.floor(len * 3 / 4)
+  } catch { return 0 }
+}
+
+function isLocalImageTooLargeDataUrl(dataUrl){
+  if (!MAX_LOCAL_IMAGE_BYTES || MAX_LOCAL_IMAGE_BYTES <= 0) return false
+  const bytes = estimateDataUrlBytes(dataUrl)
+  return bytes > MAX_LOCAL_IMAGE_BYTES
+}
 
 // 长耗时操作的通知：支持新旧宿主，避免进度提示长时间悬挂
 function showLongRunningNotice(context, message){
@@ -1721,6 +1741,7 @@ async function refreshHeader(context){
 async function buildVisionContentBlocks(context, docCtx){
   const blocks = [{ type: 'text', text: '文档上下文：\n\n' + docCtx }]
   let root = null
+  let skippedLocalImage = false
   // 优先尝试从预览 DOM 中收集图片（阅读模式）
   if (context && typeof context.getPreviewElement === 'function') {
     try {
@@ -1743,7 +1764,14 @@ async function buildVisionContentBlocks(context, docCtx){
           const isAssetUrl = /asset\.localhost/i.test(srcAttr) || /asset\.localhost/i.test(rawSrc)
           // 1) 如果是 Tauri 的 asset.localhost 预览 URL，优先用绝对路径读取为 base64
           if (isAssetUrl && absPath && typeof context.readImageAsDataUrl === 'function') {
-            try { url = await context.readImageAsDataUrl(absPath) } catch {}
+            try {
+              const dataUrl = await context.readImageAsDataUrl(absPath)
+              if (dataUrl && !isLocalImageTooLargeDataUrl(dataUrl)) {
+                url = dataUrl
+              } else if (dataUrl && isLocalImageTooLargeDataUrl(dataUrl)) {
+                skippedLocalImage = true
+              }
+            } catch {}
           }
           // 2) 其它情况保持原有顺序
           if (!url) {
@@ -1752,7 +1780,14 @@ async function buildVisionContentBlocks(context, docCtx){
             } else if (/^https?:\/\//i.test(srcAttr) || /^https?:\/\//i.test(rawSrc)) {
               url = srcAttr || rawSrc
             } else if (absPath && typeof context.readImageAsDataUrl === 'function') {
-              try { url = await context.readImageAsDataUrl(absPath) } catch {}
+              try {
+                const dataUrl = await context.readImageAsDataUrl(absPath)
+                if (dataUrl && !isLocalImageTooLargeDataUrl(dataUrl)) {
+                  url = dataUrl
+                } else if (dataUrl && isLocalImageTooLargeDataUrl(dataUrl)) {
+                  skippedLocalImage = true
+                }
+              } catch {}
             }
           }
           if (!url) continue
@@ -1819,7 +1854,12 @@ async function buildVisionContentBlocks(context, docCtx){
             }
             if (typeof context.readImageAsDataUrl === 'function') {
               try {
-                url = await context.readImageAsDataUrl(abs)
+                const dataUrl = await context.readImageAsDataUrl(abs)
+                if (dataUrl && !isLocalImageTooLargeDataUrl(dataUrl)) {
+                  url = dataUrl
+                } else if (dataUrl && isLocalImageTooLargeDataUrl(dataUrl)) {
+                  skippedLocalImage = true
+                }
               } catch {}
             }
           }
@@ -1841,6 +1881,11 @@ async function buildVisionContentBlocks(context, docCtx){
       for (const img of pending) {
         if (usedAttach >= maxAttach) break
         if (!img || !img.url) continue
+        // 粘贴附件图片同样按照本地大小上限进行过滤
+        if (isLocalImageTooLargeDataUrl(img.url)) {
+          skippedLocalImage = true
+          continue
+        }
         const label = img.name
           ? `附件图片 ${usedAttach + 1}：${img.name}`
           : `附件图片 ${usedAttach + 1}`
@@ -1850,6 +1895,13 @@ async function buildVisionContentBlocks(context, docCtx){
       }
     }
   } catch {}
+  if (skippedLocalImage) {
+    try {
+      if (context && context.ui && typeof context.ui.notice === 'function') {
+        context.ui.notice('不支持1MB以上的本地图片，已从本次视觉请求中跳过。建议使用图床后再开启视觉模式。', 'warn', 4200)
+      }
+    } catch {}
+  }
   return blocks
 }
 
@@ -2120,7 +2172,7 @@ async function mountWindow(context){
     '    <span class="mode-label" id="mode-label-free-toolbar">免费</span>',
     '   </div>',
     '   <label id="ai-free-model-label" style="display:none;font-size:12px;color:#6b7280;white-space:nowrap;margin-left:6px;">模型</label>',
-    '   <select id="ai-free-model" title="选择免费模型" style="display:none;width:80px;border-radius:6px;padding:4px 6px;font-size:12px;"><option value="qwen">Qwen</option><option value="qwen_omni">Omin👁</option><option value="gemini">Gemini👁</option><option value="glm">GLM</option></select>',
+    '   <select id="ai-free-model" title="选择免费模型" style="display:none;width:80px;border-radius:6px;padding:4px 6px;font-size:12px;"><option value="qwen">Qwen</option><option value="qwen_omni">Omin Vision</option><option value="gemini">Gemini Vision</option><option value="glm">GLM</option></select>',
     '   <div id="ai-selects">',
     '    <label id="ai-model-label" style="font-size:12px;">模型</label>',
     '    <input id="ai-model" placeholder="如 gpt-4o-mini" style="width:120px;font-size:12px;padding:4px 6px;"/>',
@@ -2146,7 +2198,7 @@ async function mountWindow(context){
      '     <option value="待办">待办</option>',
      '     <option value="提醒">提醒</option>',
      '    </select>',
-     '    <button id="ai-vision-toggle" class="ai-vision-toggle" title="视觉模式：点击开启，让 AI 读取文档中的图片">👁</button>',
+     '    <button id="ai-vision-toggle" class="ai-vision-toggle" title="视觉模式：点击开启，让 AI 读取文档中的图片">Vision</button>',
      '   </div>',
      '   <button id="ai-send" title="发送消息">↵</button>',
      '  </div>',
@@ -2312,6 +2364,15 @@ async function mountWindow(context){
           try {
             const file = it.getAsFile()
             if (!file) return
+            // 限制本地粘贴图片的大小，避免视觉模式负载过高
+            if (MAX_LOCAL_IMAGE_BYTES > 0 && file.size && file.size > MAX_LOCAL_IMAGE_BYTES) {
+              try {
+                if (context && context.ui && typeof context.ui.notice === 'function') {
+                  context.ui.notice('不支持1MB以上的本地图片，已从本次视觉请求中跳过。建议使用图床后再开启视觉模式。', 'warn', 4200)
+                }
+              } catch {}
+              return
+            }
             const fr = new FileReader()
             fr.onerror = () => {}
             fr.onload = () => {
