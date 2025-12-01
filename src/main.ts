@@ -620,6 +620,14 @@ function getPluginDockKey(pluginId: string, panelId: string): string {
   return `${pluginId}::${panelId || 'default'}`
 }
 
+function notifyWorkspaceLayoutChanged(): void {
+  try {
+    const winAny = window as any
+    const fn = winAny && winAny.__onWorkspaceLayoutChanged
+    if (typeof fn === 'function') fn()
+  } catch {}
+}
+
 function updatePluginDockGaps(): void {
   try {
     const container = document.querySelector('.container') as HTMLDivElement | null
@@ -638,6 +646,7 @@ function updatePluginDockGaps(): void {
     container.style.setProperty('--dock-left-gap', left > 0 ? `${left}px` : '0px')
     container.style.setProperty('--dock-right-gap', right > 0 ? `${right}px` : '0px')
     container.style.setProperty('--dock-bottom-gap', bottom > 0 ? `${bottom}px` : '0px')
+    notifyWorkspaceLayoutChanged()
   } catch {}
 }
 let _contextMenuEl: HTMLDivElement | null = null // 当前显示的右键菜单元素
@@ -6246,6 +6255,7 @@ function applyLibraryLayout() {
       }
     }
   } catch {}
+  notifyWorkspaceLayoutChanged()
   syncLibraryEdgeState(visible)
   syncLibraryFloatToggle()
   syncCustomTitlebarPlacement()

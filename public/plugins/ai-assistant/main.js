@@ -50,6 +50,7 @@ let __AI_MD__ = null // Markdown 渲染器实例
 let __AI_HLJS__ = null // highlight.js 实例
 let __AI_MD_WARNED__ = false // Markdown 渲染失败仅提示一次
 let __AI_DOCK_PANEL__ = null // 布局句柄（宿主统一管理推挤间距）
+let __AI_LAYOUT_UNSUB__ = null // 布局变更回调注销函数
 
 function computeWorkspaceBounds() {
   try {
@@ -57,30 +58,68 @@ function computeWorkspaceBounds() {
     const container = doc.querySelector('.container')
     const lib = doc.getElementById('library')
     const viewportWidth = WIN().innerWidth || 1280
-    let left = 0
-    let right = 0
+    let leftGap = 0
+    let rightGap = 0
     if (container && container.getBoundingClientRect) {
       const contRect = container.getBoundingClientRect()
-      left = contRect.left
-      right = viewportWidth - contRect.right
+      leftGap = contRect.left
+      rightGap = viewportWidth - contRect.right
       if (lib && !lib.classList.contains('hidden') && lib.getBoundingClientRect) {
         const libRect = lib.getBoundingClientRect()
         if (container.classList.contains('with-library-left')) {
-          const delta = Math.max(0, libRect.right - contRect.left)
-          left += delta
+          const deltaLeft = Math.max(0, libRect.right - contRect.left)
+          leftGap += deltaLeft
         }
         if (container.classList.contains('with-library-right')) {
-          const delta = Math.max(0, contRect.right - libRect.left)
-          right += delta
+          const deltaRight = Math.max(0, contRect.right - libRect.left)
+          rightGap += deltaRight
         }
       }
     }
-    if (!Number.isFinite(left) || left < 0) left = 0
-    if (!Number.isFinite(right) || right < 0) right = 0
-    return { left, right }
+    if (!Number.isFinite(leftGap) || leftGap < 0) leftGap = 0
+    if (!Number.isFinite(rightGap) || rightGap < 0) rightGap = 0
+    return { left: leftGap, right: rightGap, width: Math.max(0, viewportWidth - leftGap - rightGap) }
   } catch {
-    return { left: 0, right: 0 }
+    return { left: 0, right: 0, width: WIN().innerWidth || 1280 }
   }
+}
+
+function syncDockedWindowWithWorkspace() {
+  try {
+    const winEl = el('ai-assist-win')
+    if (!winEl) return
+    const dockLeft = winEl.classList.contains('dock-left')
+    const dockRight = winEl.classList.contains('dock-right')
+    const dockBottom = winEl.classList.contains('dock-bottom')
+    if (!dockLeft && !dockRight && !dockBottom) return
+    const bounds = computeWorkspaceBounds()
+    const workspaceWidth = bounds.width || (WIN().innerWidth || 1280)
+    if (dockLeft) {
+      const currentWidth = parseInt(winEl.style.width) || MIN_WIDTH
+      const panelWidth = Math.max(MIN_WIDTH, Math.min(currentWidth, workspaceWidth || MIN_WIDTH))
+      winEl.style.left = bounds.left + 'px'
+      winEl.style.right = 'auto'
+      winEl.style.width = panelWidth + 'px'
+      setDockPush('left', panelWidth)
+      return
+    }
+    if (dockRight) {
+      const currentWidth = parseInt(winEl.style.width) || MIN_WIDTH
+      const panelWidth = Math.max(MIN_WIDTH, Math.min(currentWidth, workspaceWidth || MIN_WIDTH))
+      winEl.style.right = bounds.right + 'px'
+      winEl.style.left = 'auto'
+      winEl.style.width = panelWidth + 'px'
+      setDockPush('right', panelWidth)
+      return
+    }
+    if (dockBottom) {
+      const currentHeight = parseInt(winEl.style.height) || 440
+      winEl.style.left = bounds.left + 'px'
+      winEl.style.right = bounds.right + 'px'
+      winEl.style.width = 'auto'
+      setDockPush('bottom', currentHeight)
+    }
+  } catch {}
 }
 
 // ========== 工具函数 ==========
@@ -1198,7 +1237,25 @@ function bindFloatDragResize(context, el){
       else if (el.classList.contains('dock-right')) { mayUndock = true; undockSide = 'right' }
       else { dragging=true }
     })
-    rz?.addEventListener('mousedown', (e)=>{ if (el.classList.contains('dock-left') || el.classList.contains('dock-right')) return; resizing=true; sx=e.clientX; sy=e.clientY; sw=parseInt(el.style.width)||520; sh=parseInt(el.style.height)||440; e.preventDefault() })
+    rz?.addEventListener('mousedown', (e)=>{
+      // 左右停靠时不允许角拖动；底部停靠时仅调整高度；浮窗时宽高都可调
+      if (el.classList.contains('dock-left') || el.classList.contains('dock-right')) return
+      if (el.classList.contains('dock-bottom')) {
+        resizing = true
+        sx = e.clientX
+        sy = e.clientY
+        sw = parseInt(el.style.width) || 520
+        sh = parseInt(el.style.height) || 440
+        e.preventDefault()
+        return
+      }
+      resizing = true
+      sx = e.clientX
+      sy = e.clientY
+      sw = parseInt(el.style.width) || 520
+      sh = parseInt(el.style.height) || 440
+      e.preventDefault()
+    })
     WIN().addEventListener('mousemove', (e)=>{
       if (mayUndock) {
         const dx = e.clientX - sx
@@ -1222,7 +1279,16 @@ function bindFloatDragResize(context, el){
         }
       }
       if (dragging){ el.style.left = (mx + e.clientX - sx) + 'px'; el.style.top = (my + e.clientY - sy) + 'px' }
-      if (resizing){ el.style.width = Math.max(MIN_WIDTH, sw + e.clientX - sx) + 'px'; el.style.height = Math.max(300, sh + e.clientY - sy) + 'px' }
+      if (resizing){
+        if (el.classList.contains('dock-bottom')) {
+          const newHeight = Math.max(300, sh + (sy - e.clientY))
+          el.style.height = newHeight + 'px'
+          setDockPush('bottom', newHeight)
+        } else {
+          el.style.width = Math.max(MIN_WIDTH, sw + e.clientX - sx) + 'px'
+          el.style.height = Math.max(300, sh + e.clientY - sy) + 'px'
+        }
+      }
     })
     WIN().addEventListener('mouseup', async ()=>{
       if (mayUndock) { mayUndock = false; undockSide = null }
@@ -1233,7 +1299,7 @@ function bindFloatDragResize(context, el){
         const winWidth = WIN().innerWidth
         const right = winWidth - left - width
 
-        if (!el.classList.contains('dock-left') && !el.classList.contains('dock-right') && left <= 16) {
+        if (!el.classList.contains('dock-left') && !el.classList.contains('dock-right') && !el.classList.contains('dock-bottom') && left <= 16) {
           // 左边缘吸附
           try { el.classList.add('dock-left') } catch {}
           const bounds = computeWorkspaceBounds()
@@ -1248,7 +1314,7 @@ function bindFloatDragResize(context, el){
           el.style.width = w + 'px'
           setDockPush('left', w)
           try { const cfg = await loadCfg(context); cfg.dock = 'left'; cfg.win = cfg.win||{}; cfg.win.w = w; await saveCfg(context,cfg); await refreshHeader(context) } catch {}
-        } else if (!el.classList.contains('dock-left') && !el.classList.contains('dock-right') && right <= 16) {
+        } else if (!el.classList.contains('dock-left') && !el.classList.contains('dock-right') && !el.classList.contains('dock-bottom') && right <= 16) {
           // 右边缘吸附
           try { el.classList.add('dock-right') } catch {}
           const bounds = computeWorkspaceBounds()
@@ -1856,9 +1922,8 @@ async function mountWindow(context){
     // 左侧停靠：紧挨库侧栏右侧
     el.classList.add('dock-left')
     const bounds = computeWorkspaceBounds()
-    const viewportWidth = WIN().innerWidth || 1280
-    const workspaceWidth = Math.max(0, viewportWidth - bounds.left - bounds.right)
-    const w = Math.min(dockWidth, workspaceWidth || dockWidth)
+    const workspaceWidth = bounds.width || (WIN().innerWidth || 1280)
+    const panelWidth = Math.min(dockWidth, workspaceWidth || dockWidth)
     try {
       const bar = DOC().querySelector('.menubar')
       const topH = ((bar && bar.clientHeight) || 0)
@@ -1869,14 +1934,13 @@ async function mountWindow(context){
     }
     el.style.left = bounds.left + 'px'
     el.style.right = 'auto'
-    el.style.width = w + 'px'
+    el.style.width = panelWidth + 'px'
   } else if (cfg && cfg.dock === 'right') {
     // 右侧停靠：紧挨工作区右边缘（预留右侧可能的库）
     el.classList.add('dock-right')
     const bounds = computeWorkspaceBounds()
-    const viewportWidth = WIN().innerWidth || 1280
-    const workspaceWidth = Math.max(0, viewportWidth - bounds.left - bounds.right)
-    const w = Math.min(dockWidth, workspaceWidth || dockWidth)
+    const workspaceWidth = bounds.width || (WIN().innerWidth || 1280)
+    const panelWidth = Math.min(dockWidth, workspaceWidth || dockWidth)
     try {
       const bar = DOC().querySelector('.menubar')
       const topH = ((bar && bar.clientHeight) || 0)
@@ -1887,7 +1951,7 @@ async function mountWindow(context){
     }
     el.style.right = bounds.right + 'px'
     el.style.left = 'auto'
-    el.style.width = w + 'px'
+    el.style.width = panelWidth + 'px'
   } else if (cfg && cfg.dock === 'bottom') {
     // 底部停靠：宽度对齐工作区（不覆盖库侧栏）
     el.classList.add('dock-bottom')
@@ -2324,9 +2388,8 @@ async function toggleDockMode(context, el){
       // 左侧停靠
       el.classList.add('dock-left')
       const bounds = computeWorkspaceBounds()
-      const viewportWidth = WIN().innerWidth || 1280
-      const workspaceWidth = Math.max(0, viewportWidth - bounds.left - bounds.right)
-      const w = Math.max(MIN_WIDTH, Math.min(Number((cfg && cfg.win && cfg.win.w) || MIN_WIDTH), workspaceWidth || MIN_WIDTH))
+      const workspaceWidth = bounds.width || (WIN().innerWidth || 1280)
+      const panelWidth = Math.max(MIN_WIDTH, Math.min(Number((cfg && cfg.win && cfg.win.w) || MIN_WIDTH), workspaceWidth || MIN_WIDTH))
       try {
         const bar = DOC().querySelector('.menubar')
         const topH = ((bar && bar.clientHeight) || 0)
@@ -2337,15 +2400,14 @@ async function toggleDockMode(context, el){
       }
       el.style.left = bounds.left + 'px'
       el.style.right = 'auto'
-      el.style.width = w + 'px'
-      setDockPush('left', w)
+      el.style.width = panelWidth + 'px'
+      setDockPush('left', panelWidth)
     } else if (nextDock === 'right') {
       // 右侧停靠
       el.classList.add('dock-right')
       const bounds = computeWorkspaceBounds()
-      const viewportWidth = WIN().innerWidth || 1280
-      const workspaceWidth = Math.max(0, viewportWidth - bounds.left - bounds.right)
-      const w = Math.max(MIN_WIDTH, Math.min(Number((cfg && cfg.win && cfg.win.w) || MIN_WIDTH), workspaceWidth || MIN_WIDTH))
+      const workspaceWidth = bounds.width || (WIN().innerWidth || 1280)
+      const panelWidth = Math.max(MIN_WIDTH, Math.min(Number((cfg && cfg.win && cfg.win.w) || MIN_WIDTH), workspaceWidth || MIN_WIDTH))
       try {
         const bar = DOC().querySelector('.menubar')
         const topH = ((bar && bar.clientHeight) || 0)
@@ -2356,8 +2418,8 @@ async function toggleDockMode(context, el){
       }
       el.style.right = bounds.right + 'px'
       el.style.left = 'auto'
-      el.style.width = w + 'px'
-      setDockPush('right', w)
+      el.style.width = panelWidth + 'px'
+      setDockPush('right', panelWidth)
     } else if (nextDock === 'bottom') {
       // 底部停靠
       el.classList.add('dock-bottom')
@@ -2397,9 +2459,8 @@ async function setDockMode(context, el, dockMode){
     if (dockMode === 'left') {
       el.classList.add('dock-left')
       const bounds = computeWorkspaceBounds()
-      const viewportWidth = WIN().innerWidth || 1280
-      const workspaceWidth = Math.max(0, viewportWidth - bounds.left - bounds.right)
-      const w = Math.max(MIN_WIDTH, Math.min(Number((cfg && cfg.win && cfg.win.w) || MIN_WIDTH), workspaceWidth || MIN_WIDTH))
+      const workspaceWidth = bounds.width || (WIN().innerWidth || 1280)
+      const panelWidth = Math.max(MIN_WIDTH, Math.min(Number((cfg && cfg.win && cfg.win.w) || MIN_WIDTH), workspaceWidth || MIN_WIDTH))
       try {
         const bar = DOC().querySelector('.menubar')
         const topH = ((bar && bar.clientHeight) || 0)
@@ -2410,14 +2471,13 @@ async function setDockMode(context, el, dockMode){
       }
       el.style.left = bounds.left + 'px'
       el.style.right = 'auto'
-      el.style.width = w + 'px'
-      setDockPush('left', w)
+      el.style.width = panelWidth + 'px'
+      setDockPush('left', panelWidth)
     } else if (dockMode === 'right') {
       el.classList.add('dock-right')
       const bounds = computeWorkspaceBounds()
-      const viewportWidth = WIN().innerWidth || 1280
-      const workspaceWidth = Math.max(0, viewportWidth - bounds.left - bounds.right)
-      const w = Math.max(MIN_WIDTH, Math.min(Number((cfg && cfg.win && cfg.win.w) || MIN_WIDTH), workspaceWidth || MIN_WIDTH))
+      const workspaceWidth = bounds.width || (WIN().innerWidth || 1280)
+      const panelWidth = Math.max(MIN_WIDTH, Math.min(Number((cfg && cfg.win && cfg.win.w) || MIN_WIDTH), workspaceWidth || MIN_WIDTH))
       try {
         const bar = DOC().querySelector('.menubar')
         const topH = ((bar && bar.clientHeight) || 0)
@@ -2428,8 +2488,8 @@ async function setDockMode(context, el, dockMode){
       }
       el.style.right = bounds.right + 'px'
       el.style.left = 'auto'
-      el.style.width = w + 'px'
-      setDockPush('right', w)
+      el.style.width = panelWidth + 'px'
+      setDockPush('right', panelWidth)
     } else if (dockMode === 'bottom') {
       el.classList.add('dock-bottom')
       const h = Math.max(300, Number((cfg && cfg.win && cfg.win.h) || 440))
@@ -3451,6 +3511,20 @@ export async function activate(context) {
   // 菜单：AI 助手（显示/隐藏）
   __AI_MENU_ITEM__ = context.addMenuItem({ label: 'AI 助手', title: '打开 AI 写作助手', onClick: async () => { await toggleWindow(context) } })
 
+  // 订阅宿主工作区布局变更（库侧栏开关等），保持 dock 模式下的位置与宽度同步
+  try {
+    const winObj = WIN()
+    const prev = winObj.__onWorkspaceLayoutChanged
+    const handler = () => { try { syncDockedWindowWithWorkspace() } catch {} }
+    if (typeof prev === 'function') {
+      winObj.__onWorkspaceLayoutChanged = () => { try { prev() } catch {} ; handler() }
+      __AI_LAYOUT_UNSUB__ = () => { try { winObj.__onWorkspaceLayoutChanged = prev } catch {} }
+    } else {
+      winObj.__onWorkspaceLayoutChanged = handler
+      __AI_LAYOUT_UNSUB__ = () => { try { if (winObj.__onWorkspaceLayoutChanged === handler) winObj.__onWorkspaceLayoutChanged = null } catch {} }
+    }
+  } catch {}
+
   // 右键菜单：AI 助手快捷操作
   if (context.addContextMenuItem) {
     try {
@@ -3612,6 +3686,13 @@ export function deactivate(){
       __AI_FN_DEBOUNCE_TIMER__ = null
     }
   } catch {}
+  // 取消布局变更订阅
+  try {
+    if (__AI_LAYOUT_UNSUB__ && typeof __AI_LAYOUT_UNSUB__ === 'function') {
+      __AI_LAYOUT_UNSUB__()
+    }
+  } catch {}
+  __AI_LAYOUT_UNSUB__ = null
   // 清理窗口
   try {
     const win = DOC().getElementById('ai-assist-win')
