@@ -43,6 +43,7 @@
 - [扩展开发](#-扩展开发)
 - [性能指标](#-性能指标)
 - [许可协议](#-许可协议)
+- [社区开发者](#-社区开发者)
 - [致谢](#-致谢)
 - [常见问题](#-常见问题)
 
@@ -280,6 +281,14 @@ FlyMD 支持通过扩展插件增强功能：
 商业授权请联系：flyhunterl <flyhunterl@gmail.com>
 
 完整许可证：[LICENSE](LICENSE) | 第三方组件：[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
+
+---
+
+## 👨‍💻 社区开发者
+
+| 开发者 | 贡献 |
+|--------|------|
+| [xf959211192](https://github.com/xf959211192) | Telegraph-Image 图床上传 |
 
 ---
 

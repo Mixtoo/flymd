@@ -41,6 +41,7 @@
 - [Extension Development](#-extension-development)
 - [Performance Metrics](#-performance-metrics)
 - [License](#-license)
+- [Community Developers](#-community-developers)
 - [Acknowledgments](#-acknowledgments)
 - [FAQ](#-faq)
 
@@ -282,6 +283,14 @@ This project uses "FlySpeed MarkDown (flyMD) Non-Commercial Open Source License 
 For commercial licensing, contact: flyhunterl <flyhunterl@gmail.com>
 
 Full License: [LICENSE](LICENSE) | Third-Party Components: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
+
+---
+
+## 👨‍💻 Community Developers
+
+| Developer | Contribution |
+|-----------|-------------|
+| [xf959211192](https://github.com/xf959211192) | Telegraph-Image image hosting uploader |
 
 ---
 
