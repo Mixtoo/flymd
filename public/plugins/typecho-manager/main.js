@@ -2443,6 +2443,12 @@ async function publishCurrentDocument(context) {
         const docBody = context.getDocBody ? context.getDocBody() : body
         const newDoc = `---\n${yaml}\n---\n\n${docBody || ''}`
         context.setEditorValue(newDoc)
+        try {
+          const fn = typeof window !== 'undefined' ? window.flymdRenameCurrentFileForTypecho : null
+          if (fn && typeof fn === 'function') {
+            void fn(String(cid), title)
+          }
+        } catch {}
       } catch (e) {
         console.error('[Typecho Manager] 回写 Front Matter 失败（不影响远端更新）', e)
       }
@@ -2476,6 +2482,12 @@ async function publishCurrentDocument(context) {
         const docBody = context.getDocBody ? context.getDocBody() : body
         const newDoc = `---\n${yaml}\n---\n\n${docBody || ''}`
         context.setEditorValue(newDoc)
+        try {
+          const fn = typeof window !== 'undefined' ? window.flymdRenameCurrentFileForTypecho : null
+          if (fn && typeof fn === 'function') {
+            void fn(String(cidStr), title)
+          }
+        } catch {}
       } catch (e) {
         console.error('[Typecho Manager] 回写 Front Matter 失败（不影响远端新建）', e)
       }

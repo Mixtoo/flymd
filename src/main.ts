@@ -6187,6 +6187,35 @@ try {
     ;(window as any).flymdNewFile = newFile
     ;(window as any).flymdSaveFile = saveFile
     ;(window as any).flymdRenamePathWithDialog = (path: string) => renamePathWithDialog(path)
+    ;(window as any).flymdRenameCurrentFileForTypecho = async (id: string, title: string) => {
+      try {
+        if (!currentFilePath) return null
+        const idStr = String(id || '').trim()
+        const baseTitle = String(title || '').trim()
+        let safeTitle = baseTitle || idStr || '未命名'
+        safeTitle = safeTitle
+          .replace(/[\\/:*?"<>|]/g, '')
+          .replace(/\s+/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-+|-+$/g, '')
+        if (!safeTitle) safeTitle = idStr || 'untitled'
+        const core = idStr ? `${idStr}-${safeTitle}` : safeTitle
+        const m = currentFilePath.match(/(\.[^\\/\\.]+)$/)
+        const ext = m ? m[1] : ''
+        const newName = core + ext
+        const newPath = await renameFileSafe(currentFilePath, newName)
+        currentFilePath = newPath as any
+        refreshTitle()
+        const treeEl = document.getElementById('lib-tree') as HTMLDivElement | null
+        if (treeEl && fileTreeReady) {
+          try { await fileTree.refresh() } catch {}
+        }
+        return newPath
+      } catch (e) {
+        console.error('[Typecho] 自动重命名当前文件失败', e)
+        return null
+      }
+    }
     ;(window as any).flymdOpenInNewInstance = async (path: string) => {
       try { await openPath(path) } catch {}
     }
