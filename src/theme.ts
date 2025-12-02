@@ -22,8 +22,6 @@ export interface ThemePrefs {
   editBgDark?: string
   /** 夜间模式阅读背景 */
   readBgDark?: string
-  /** 夜间模式所见背景 */
-  wysiwygBgDark?: string
   typography: TypographyId
   mdStyle: MdStyleId
   themeId?: string
@@ -53,7 +51,6 @@ const DEFAULT_PREFS: ThemePrefs = {
   wysiwygBg: getCssVar('--wysiwyg-bg') || '#e9edf5',
   editBgDark: '#0b0c0e',
   readBgDark: '#12100d',
-  wysiwygBgDark: '#0f1114',
   typography: 'default',
   mdStyle: 'standard',
 }
@@ -86,10 +83,9 @@ export function applyThemePrefs(prefs: ThemePrefs): void {
       // 夜间模式：应用用户设置的夜间背景色（如果已设置），否则使用默认深色
       const editDark = prefs.editBgDark || DEFAULT_PREFS.editBgDark || '#0b0c0e'
       const readDark = prefs.readBgDark || DEFAULT_PREFS.readBgDark || '#12100d'
-      const wysiwygDark = prefs.wysiwygBgDark || DEFAULT_PREFS.wysiwygBgDark || '#0f1114'
       c.style.setProperty('--bg', editDark)
       c.style.setProperty('--preview-bg', readDark)
-      c.style.setProperty('--wysiwyg-bg', wysiwygDark)
+      // 夜间模式下，所见模式背景固定使用 CSS 定义的颜色，不支持用户调整
     } else {
       // 日间模式：应用用户设置的背景色
       c.style.setProperty('--bg', prefs.editBg)
@@ -163,7 +159,6 @@ export function loadThemePrefs(): ThemePrefs {
       wysiwygBg: obj.wysiwygBg || DEFAULT_PREFS.wysiwygBg,
       editBgDark: obj.editBgDark || DEFAULT_PREFS.editBgDark,
       readBgDark: obj.readBgDark || DEFAULT_PREFS.readBgDark,
-      wysiwygBgDark: obj.wysiwygBgDark || DEFAULT_PREFS.wysiwygBgDark,
       typography: (['default','serif','modern','reading','academic','compact','elegant','minimal','tech','literary'] as string[]).includes(obj.typography) ? obj.typography : 'default',
       mdStyle: (['standard','github','notion','journal','card','docs','typora','obsidian','bear','minimalist'] as string[]).includes(mdStyle) ? mdStyle : 'standard',
       themeId: obj.themeId || undefined,
@@ -417,11 +412,19 @@ function fillSwatches(panel: HTMLElement, prefs: ThemePrefs) {
   panel.querySelectorAll('.theme-swatches').forEach((wrap) => {
     const el = wrap as HTMLElement
     const tgt = el.dataset.target || 'edit'
+
+    // 夜间模式下隐藏所见背景选择
+    if (isDarkMode && tgt === 'wysiwyg') {
+      el.parentElement?.classList.add('hidden')
+      return
+    } else {
+      el.parentElement?.classList.remove('hidden')
+    }
+
     // 根据当前模式选择对应的背景色
     const cur = isDarkMode
       ? (tgt === 'edit' ? (prefs.editBgDark || DEFAULT_PREFS.editBgDark)
-        : (tgt === 'read' ? (prefs.readBgDark || DEFAULT_PREFS.readBgDark)
-        : (prefs.wysiwygBgDark || DEFAULT_PREFS.wysiwygBgDark)))
+        : (prefs.readBgDark || DEFAULT_PREFS.readBgDark))
       : (tgt === 'edit' ? prefs.editBg : (tgt === 'read' ? prefs.readBg : prefs.wysiwygBg))
 
     el.innerHTML = colors.map(({ id, label, color }) => {
@@ -702,11 +705,11 @@ export function initThemeUI(): void {
         if (isDarkMode) {
           if (forWhich === 'edit') c.style.setProperty('--bg', lastSaved.editBgDark || DEFAULT_PREFS.editBgDark || '#0b0c0e')
           else if (forWhich === 'read') c.style.setProperty('--preview-bg', lastSaved.readBgDark || DEFAULT_PREFS.readBgDark || '#12100d')
-          else c.style.setProperty('--wysiwyg-bg', lastSaved.wysiwygBgDark || DEFAULT_PREFS.wysiwygBgDark || '#0f1114')
+          // 夜间模式下所见背景不需要还原（不支持调整）
         } else {
           if (forWhich === 'edit') c.style.setProperty('--bg', lastSaved.editBg)
           else if (forWhich === 'read') c.style.setProperty('--preview-bg', lastSaved.readBg)
-          else c.style.setProperty('--wysiwyg-bg', lastSaved.wysiwygBg)
+          else if (forWhich === 'wysiwyg') c.style.setProperty('--wysiwyg-bg', lastSaved.wysiwygBg)
         }
       } catch {}
     }
@@ -718,7 +721,7 @@ export function initThemeUI(): void {
         if (isDarkMode) {
           c.style.setProperty('--bg', lastSaved.editBgDark || DEFAULT_PREFS.editBgDark || '#0b0c0e')
           c.style.setProperty('--preview-bg', lastSaved.readBgDark || DEFAULT_PREFS.readBgDark || '#12100d')
-          c.style.setProperty('--wysiwyg-bg', lastSaved.wysiwygBgDark || DEFAULT_PREFS.wysiwygBgDark || '#0f1114')
+          // 夜间模式下所见背景不需要还原（不支持调整）
         } else {
           c.style.setProperty('--bg', lastSaved.editBg)
           c.style.setProperty('--preview-bg', lastSaved.readBg)
@@ -752,15 +755,14 @@ export function initThemeUI(): void {
         // 根据当前模式保存到对应的字段
         const isDarkMode = document.body.classList.contains('dark-mode')
         if (isDarkMode) {
-          // 夜间模式：保存到深色背景字段
+          // 夜间模式：只保存编辑和阅读背景（所见模式背景不支持调整）
           if (forWhich === 'edit') cur.editBgDark = color
           else if (forWhich === 'read') cur.readBgDark = color
-          else cur.wysiwygBgDark = color
         } else {
           // 日间模式：保存到亮色背景字段
           if (forWhich === 'edit') cur.editBg = color
           else if (forWhich === 'read') cur.readBg = color
-          else cur.wysiwygBg = color
+          else if (forWhich === 'wysiwyg') cur.wysiwygBg = color
         }
         saveThemePrefs(cur)
         applyThemePrefs(cur)
