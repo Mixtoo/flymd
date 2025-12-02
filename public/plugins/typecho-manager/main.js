@@ -256,7 +256,8 @@ const sessionState = {
   searchText: '',
   pageSize: 50,
   pageIndex: 0,
-  conflictChoice: null // null | 'overwrite' | 'skip'
+  conflictChoice: null, // null | 'overwrite' | 'skip'
+  selectedIds: new Set()
 }
 
 // 管理窗口 DOM 引用
@@ -639,6 +640,11 @@ function buildManagerDialog() {
   pageInfoEl.className = 'tm-typecho-page-info'
   pageInfoEl.textContent = ''
 
+  const btnBatchDownload = document.createElement('button')
+  btnBatchDownload.className = 'tm-typecho-btn'
+  btnBatchDownload.textContent = '批量下载选中'
+  btnBatchDownload.addEventListener('click', () => { void batchDownloadSelected(globalContextRef) })
+
   prevPageBtn = document.createElement('button')
   prevPageBtn.className = 'tm-typecho-btn'
   prevPageBtn.textContent = '上一页'
@@ -658,6 +664,7 @@ function buildManagerDialog() {
   })
 
   footerRight.appendChild(pageInfoEl)
+  footerRight.appendChild(btnBatchDownload)
   footerRight.appendChild(prevPageBtn)
   footerRight.appendChild(nextPageBtn)
 
@@ -751,6 +758,18 @@ function buildRelatedPosts(currentMeta, posts) {
   return results.slice(0, 20)
 }
 
+function getSelectedPosts() {
+  const result = []
+  if (!sessionState.selectedIds || !sessionState.selectedIds.size) return result
+  const ids = sessionState.selectedIds
+  for (const p of sessionState.posts || []) {
+    const cid = p.postid || p.postId || p.cid || p.id
+    if (!cid && cid !== 0) continue
+    if (ids.has(String(cid))) result.push(p)
+  }
+  return result
+}
+
 // 拉取与渲染文章列表（逻辑部分）
 
 async function loadAllPosts(context, settings) {
@@ -785,6 +804,7 @@ async function refreshPosts(context) {
     sessionState.posts = Array.isArray(posts) ? posts : []
     sessionState.categories = extractCategoriesFromPosts(sessionState.posts)
     sessionState.pageIndex = 0
+    sessionState.selectedIds = new Set()
 
     // 更新分类下拉
     if (categorySelect) {
@@ -1109,6 +1129,26 @@ async function openStatsDialog(context) {
   statsOverlayEl = overlay
 }
 
+async function batchDownloadSelected(context) {
+  if (!context) return
+  const list = getSelectedPosts()
+  if (!list.length) {
+    try { context.ui.notice('请先勾选要下载的文章', 'err', 2200) } catch {}
+    return
+  }
+  let ok = false
+  try {
+    ok = await context.ui.confirm(`将下载 ${list.length} 篇文章到本地，是否继续？`)
+  } catch {}
+  if (!ok) return
+  for (const p of list) {
+    try { // 单篇下载内部已有错误提示
+      // eslint-disable-next-line no-await-in-loop
+      await downloadSinglePost(context, p)
+    } catch {}
+  }
+}
+
 async function renderPostTable() {
   if (!listBodyEl) return
   let items = sessionState.posts.slice()
@@ -1200,7 +1240,20 @@ async function renderPostTable() {
 
       const cellTitle = document.createElement('div')
       cellTitle.className = 'tm-typecho-td tm-typecho-title'
-      cellTitle.textContent = title
+      const checkbox = document.createElement('input')
+      checkbox.type = 'checkbox'
+      checkbox.style.marginRight = '6px'
+      checkbox.checked = !!(cid || cid === 0) && sessionState.selectedIds && sessionState.selectedIds.has(String(cid))
+      checkbox.addEventListener('change', () => {
+        if (!sessionState.selectedIds) sessionState.selectedIds = new Set()
+        const key = String(cid)
+        if (checkbox.checked) sessionState.selectedIds.add(key)
+        else sessionState.selectedIds.delete(key)
+      })
+      cellTitle.appendChild(checkbox)
+      const titleSpan = document.createElement('span')
+      titleSpan.textContent = title
+      cellTitle.appendChild(titleSpan)
       cellTitle.title = title
       row.appendChild(cellTitle)
 
