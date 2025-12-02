@@ -2032,6 +2032,7 @@ async function downloadSinglePost(context, post) {
       }
     }
 
+    const initialTitle = String(meta.title || '').trim()
     const initialStatusDraft = !!meta.draft
     const initialStatus = initialStatusDraft ? 'draft' : 'publish'
     const initialSlug = String(meta.slug || '').trim()
@@ -2068,6 +2069,14 @@ async function downloadSinglePost(context, post) {
         row.appendChild(inputEl)
         body.appendChild(row)
       }
+
+      // 标题
+      const inputTitle = document.createElement('input')
+      inputTitle.type = 'text'
+      inputTitle.className = 'tm-typecho-settings-input'
+      inputTitle.placeholder = '若为空则使用文档标题或 (未命名)'
+      inputTitle.value = initialTitle
+      addRow('标题', inputTitle); rows.title = inputTitle
 
       // 分类多选
       const catContainer = document.createElement('div')
@@ -2212,6 +2221,7 @@ async function downloadSinglePost(context, post) {
         }
 
         cleanup({
+          title: rows.title.value || '',
           categories: chosenCats,
           status: st,
           draft: st === 'draft',
@@ -2253,7 +2263,7 @@ async function publishCurrentDocument(context) {
   }
   const cid = meta.typechoId || meta.cid || meta.id
 
-  const title = String(meta.title || '').trim() || '(未命名)'
+  let title = String(meta.title || '').trim() || '(未命名)'
   const excerpt = String(meta.excerpt || '').trim()
   let cats = Array.isArray(meta.categories) ? meta.categories : []
   const tagArr = Array.isArray(meta.tags)
@@ -2286,6 +2296,10 @@ async function publishCurrentDocument(context) {
     })
     if (uiOpts === null) return
     if (uiOpts) {
+      if (uiOpts.title !== undefined) {
+        const t = String(uiOpts.title || '').trim()
+        if (t) title = t
+      }
       if (Array.isArray(uiOpts.categories) && uiOpts.categories.length) {
         cats = uiOpts.categories.map((x) => String(x || '').trim()).filter(Boolean)
       }
@@ -2373,6 +2387,9 @@ async function publishCurrentDocument(context) {
   if (coverUrl) {
     if (!customFieldMap.has('thumbnail')) customFieldMap.set('thumbnail', coverUrl)
     if (!customFieldMap.has('thumb')) customFieldMap.set('thumb', coverUrl)
+    // 同步一个顶层 thumb 字段，兼容部分 Typecho 主题
+    // @ts-ignore
+    postStruct.thumb = coverUrl
   }
   if (customFieldMap.size > 0) {
     postStruct.custom_fields = []
