@@ -135,6 +135,10 @@ function rewriteLocalImagesToAsset() {
     const convertOne = (imgEl: HTMLImageElement) => {
       try {
         const raw = imgEl.getAttribute('src') || ''
+        // 记录原始 src，供所见模式图片编辑弹窗显示/编辑真实路径，而不是 base64
+        if (!imgEl.getAttribute('data-flymd-src-raw')) {
+          imgEl.setAttribute('data-flymd-src-raw', raw)
+        }
         const abs = toLocalAbsFromSrc(raw)
         if (!abs) return
         void (async () => {
@@ -1048,7 +1052,8 @@ function enterImageSourceEdit(hitEl: HTMLElement) {
 
     const urlInput = document.createElement('input')
     urlInput.type = 'text'
-    urlInput.value = img.getAttribute('src') || ''
+    // 优先使用记录下来的原始路径（file/本地相对路径等），避免展示 base64 / asset: 等转译结果
+    urlInput.value = img.getAttribute('data-flymd-src-raw') || img.getAttribute('src') || ''
     urlInput.placeholder = '图片地址（必填）'
     urlInput.style.width = '100%'
 
@@ -1079,6 +1084,7 @@ function enterImageSourceEdit(hitEl: HTMLElement) {
       const src = urlInput.value.trim()
       const alt = altInput.value || ''
       if (!src) { try { urlInput.focus() } catch {}; return }
+      try { img.setAttribute('data-flymd-src-raw', src) } catch {}
       try { updateMilkdownImageFromDom(img, src, alt) } catch {}
       close()
     }
