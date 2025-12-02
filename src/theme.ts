@@ -18,6 +18,12 @@ export interface ThemePrefs {
   editBg: string
   readBg: string
   wysiwygBg: string
+  /** 夜间模式编辑背景 */
+  editBgDark?: string
+  /** 夜间模式阅读背景 */
+  readBgDark?: string
+  /** 夜间模式所见背景 */
+  wysiwygBgDark?: string
   typography: TypographyId
   mdStyle: MdStyleId
   themeId?: string
@@ -45,6 +51,9 @@ const DEFAULT_PREFS: ThemePrefs = {
   editBg: '#ffffff',
   readBg: getCssVar('--preview-bg') || '#fbf5e6',
   wysiwygBg: getCssVar('--wysiwyg-bg') || '#e9edf5',
+  editBgDark: '#0b0c0e',
+  readBgDark: '#12100d',
+  wysiwygBgDark: '#0f1114',
   typography: 'default',
   mdStyle: 'standard',
 }
@@ -74,10 +83,13 @@ export function applyThemePrefs(prefs: ThemePrefs): void {
     const isDarkMode = document.body.classList.contains('dark-mode')
 
     if (isDarkMode) {
-      // 夜间模式：移除背景变量，让 CSS 夜间模式样式使用默认深色
-      c.style.removeProperty('--bg')
-      c.style.removeProperty('--preview-bg')
-      c.style.removeProperty('--wysiwyg-bg')
+      // 夜间模式：应用用户设置的夜间背景色（如果已设置），否则使用默认深色
+      const editDark = prefs.editBgDark || DEFAULT_PREFS.editBgDark || '#0b0c0e'
+      const readDark = prefs.readBgDark || DEFAULT_PREFS.readBgDark || '#12100d'
+      const wysiwygDark = prefs.wysiwygBgDark || DEFAULT_PREFS.wysiwygBgDark || '#0f1114'
+      c.style.setProperty('--bg', editDark)
+      c.style.setProperty('--preview-bg', readDark)
+      c.style.setProperty('--wysiwyg-bg', wysiwygDark)
     } else {
       // 日间模式：应用用户设置的背景色
       c.style.setProperty('--bg', prefs.editBg)
@@ -85,7 +97,7 @@ export function applyThemePrefs(prefs: ThemePrefs): void {
       c.style.setProperty('--wysiwyg-bg', prefs.wysiwygBg)
     }
 
-    // 阅读模式“纯白背景”特殊处理：当阅读背景为纯白且非夜间模式时，移除羊皮纸纹理，让预览真正呈现纯白纸面
+    // 阅读模式"纯白背景"特殊处理：当阅读背景为纯白且非夜间模式时，移除羊皮纸纹理，让预览真正呈现纯白纸面
     try {
       const readColor = (prefs.readBg || '').trim().toLowerCase()
       const isPureWhite = readColor === '#ffffff' || readColor === '#fff'
@@ -149,6 +161,9 @@ export function loadThemePrefs(): ThemePrefs {
       editBg: obj.editBg || DEFAULT_PREFS.editBg,
       readBg: obj.readBg || DEFAULT_PREFS.readBg,
       wysiwygBg: obj.wysiwygBg || DEFAULT_PREFS.wysiwygBg,
+      editBgDark: obj.editBgDark || DEFAULT_PREFS.editBgDark,
+      readBgDark: obj.readBgDark || DEFAULT_PREFS.readBgDark,
+      wysiwygBgDark: obj.wysiwygBgDark || DEFAULT_PREFS.wysiwygBgDark,
       typography: (['default','serif','modern','reading','academic','compact','elegant','minimal','tech','literary'] as string[]).includes(obj.typography) ? obj.typography : 'default',
       mdStyle: (['standard','github','notion','journal','card','docs','typora','obsidian','bear','minimalist'] as string[]).includes(mdStyle) ? mdStyle : 'standard',
       themeId: obj.themeId || undefined,
@@ -258,6 +273,38 @@ function buildColorList(): Array<{ id: string; label: string; color: string }> {
   return base.concat(_palettes)
 }
 
+// 夜间模式色板
+function buildDarkColorList(): Array<{ id: string; label: string; color: string }> {
+  const darkBase = [
+    // 经典深色系
+    { id: 'dark-pure', label: '纯黑', color: '#000000' },
+    { id: 'dark-charcoal', label: '木炭', color: '#0b0c0e' },
+    { id: 'dark-midnight', label: '午夜', color: '#12100d' },
+    { id: 'dark-slate', label: '石板', color: '#0f1114' },
+    // 暖色调深色
+    { id: 'dark-coffee', label: '咖啡', color: '#1a1410' },
+    { id: 'dark-brown', label: '棕褐', color: '#1c1410' },
+    { id: 'dark-sepia', label: '深褐', color: '#1a1612' },
+    // 冷色调深色
+    { id: 'dark-navy', label: '深蓝', color: '#0d1117' },
+    { id: 'dark-ocean', label: '海洋', color: '#0e1419' },
+    { id: 'dark-steel', label: '钢青', color: '#111418' },
+    // 中性深色
+    { id: 'dark-graphite', label: '石墨', color: '#14161a' },
+    { id: 'dark-ash', label: '灰烬', color: '#16181c' },
+    { id: 'dark-smoke', label: '烟灰', color: '#18191d' },
+    // 柔和深色（护眼）
+    { id: 'dark-olive', label: '橄榄', color: '#15160f' },
+    { id: 'dark-forest', label: '森林', color: '#0f1510' },
+    { id: 'dark-moss', label: '苔藓', color: '#12140f' },
+    // 暖灰深色
+    { id: 'dark-pewter', label: '暖锡', color: '#1a1816' },
+    { id: 'dark-taupe', label: '驼灰', color: '#1c1816' },
+    { id: 'dark-umber', label: '土褐', color: '#1a1512' },
+  ]
+  return darkBase.concat(_palettes)
+}
+
 function createPanel(): HTMLDivElement {
   const panel = document.createElement('div')
   panel.className = 'theme-panel hidden'
@@ -362,11 +409,21 @@ function createPanel(): HTMLDivElement {
 }
 
 function fillSwatches(panel: HTMLElement, prefs: ThemePrefs) {
-  const colors = buildColorList()
+  // 检测当前是否为夜间模式
+  const isDarkMode = document.body.classList.contains('dark-mode')
+  // 根据模式选择色板
+  const colors = isDarkMode ? buildDarkColorList() : buildColorList()
+
   panel.querySelectorAll('.theme-swatches').forEach((wrap) => {
     const el = wrap as HTMLElement
     const tgt = el.dataset.target || 'edit'
-    const cur = tgt === 'edit' ? prefs.editBg : (tgt === 'read' ? prefs.readBg : prefs.wysiwygBg)
+    // 根据当前模式选择对应的背景色
+    const cur = isDarkMode
+      ? (tgt === 'edit' ? (prefs.editBgDark || DEFAULT_PREFS.editBgDark)
+        : (tgt === 'read' ? (prefs.readBgDark || DEFAULT_PREFS.readBgDark)
+        : (prefs.wysiwygBgDark || DEFAULT_PREFS.wysiwygBgDark)))
+      : (tgt === 'edit' ? prefs.editBg : (tgt === 'read' ? prefs.readBg : prefs.wysiwygBg))
+
     el.innerHTML = colors.map(({ id, label, color }) => {
       const active = (color.toLowerCase() === (cur || '').toLowerCase()) ? 'active' : ''
       const title = `${label} ${color}`
@@ -640,9 +697,33 @@ export function initThemeUI(): void {
     const revertPreview = (forWhich: string) => {
       try {
         const c = getContainer(); if (!c) return
-        if (forWhich === 'edit') c.style.setProperty('--bg', lastSaved.editBg)
-        else if (forWhich === 'read') c.style.setProperty('--preview-bg', lastSaved.readBg)
-        else c.style.setProperty('--wysiwyg-bg', lastSaved.wysiwygBg)
+        // 根据当前模式还原对应的背景色
+        const isDarkMode = document.body.classList.contains('dark-mode')
+        if (isDarkMode) {
+          if (forWhich === 'edit') c.style.setProperty('--bg', lastSaved.editBgDark || DEFAULT_PREFS.editBgDark || '#0b0c0e')
+          else if (forWhich === 'read') c.style.setProperty('--preview-bg', lastSaved.readBgDark || DEFAULT_PREFS.readBgDark || '#12100d')
+          else c.style.setProperty('--wysiwyg-bg', lastSaved.wysiwygBgDark || DEFAULT_PREFS.wysiwygBgDark || '#0f1114')
+        } else {
+          if (forWhich === 'edit') c.style.setProperty('--bg', lastSaved.editBg)
+          else if (forWhich === 'read') c.style.setProperty('--preview-bg', lastSaved.readBg)
+          else c.style.setProperty('--wysiwyg-bg', lastSaved.wysiwygBg)
+        }
+      } catch {}
+    }
+    // 还原所有预览变量到已保存值
+    const revertAllPreviews = () => {
+      try {
+        const c = getContainer(); if (!c) return
+        const isDarkMode = document.body.classList.contains('dark-mode')
+        if (isDarkMode) {
+          c.style.setProperty('--bg', lastSaved.editBgDark || DEFAULT_PREFS.editBgDark || '#0b0c0e')
+          c.style.setProperty('--preview-bg', lastSaved.readBgDark || DEFAULT_PREFS.readBgDark || '#12100d')
+          c.style.setProperty('--wysiwyg-bg', lastSaved.wysiwygBgDark || DEFAULT_PREFS.wysiwygBgDark || '#0f1114')
+        } else {
+          c.style.setProperty('--bg', lastSaved.editBg)
+          c.style.setProperty('--preview-bg', lastSaved.readBg)
+          c.style.setProperty('--wysiwyg-bg', lastSaved.wysiwygBg)
+        }
       } catch {}
     }
     // 事件委托：在 swatch 上方时应用预览色
@@ -668,9 +749,19 @@ export function initThemeUI(): void {
         const color = t.dataset.color || '#ffffff'
         const forWhich = t.dataset.for || 'edit'
         const cur = loadThemePrefs()
-        if (forWhich === 'edit') cur.editBg = color
-        else if (forWhich === 'read') cur.readBg = color
-        else cur.wysiwygBg = color
+        // 根据当前模式保存到对应的字段
+        const isDarkMode = document.body.classList.contains('dark-mode')
+        if (isDarkMode) {
+          // 夜间模式：保存到深色背景字段
+          if (forWhich === 'edit') cur.editBgDark = color
+          else if (forWhich === 'read') cur.readBgDark = color
+          else cur.wysiwygBgDark = color
+        } else {
+          // 日间模式：保存到亮色背景字段
+          if (forWhich === 'edit') cur.editBg = color
+          else if (forWhich === 'read') cur.readBg = color
+          else cur.wysiwygBg = color
+        }
         saveThemePrefs(cur)
         applyThemePrefs(cur)
         fillSwatches(panel!, cur)
@@ -790,6 +881,12 @@ export function initThemeUI(): void {
         try {
           localStorage.setItem(DARK_MODE_KEY, enabled ? 'true' : 'false')
           document.body.classList.toggle('dark-mode', enabled)
+          // 重新应用主题设置（切换模式时使用对应的背景色）
+          const cur = loadThemePrefs()
+          applyThemePrefs(cur)
+          // 刷新色板显示（切换到对应模式的色板）
+          fillSwatches(panel!, cur)
+          lastSaved = { ...cur }
           // 触发事件，通知其他组件
           const ev = new CustomEvent('flymd:darkmode:changed', { detail: { enabled } })
           window.dispatchEvent(ev)
@@ -810,14 +907,7 @@ export function initThemeUI(): void {
     const closeBtn = panel.querySelector('.theme-panel-close') as HTMLButtonElement | null
     if (closeBtn) {
       closeBtn.addEventListener('click', () => {
-        try {
-          // 关闭前还原预览变量
-          const c = getContainer(); if (c) {
-            c.style.setProperty('--bg', lastSaved.editBg)
-            c.style.setProperty('--preview-bg', lastSaved.readBg)
-            c.style.setProperty('--wysiwyg-bg', lastSaved.wysiwygBg)
-          }
-        } catch {}
+        revertAllPreviews()
         panel!.classList.add('hidden')
       })
     }
@@ -831,13 +921,7 @@ export function initThemeUI(): void {
           panel!.classList.toggle('hidden')
           // 面板关闭时，确保预览被还原为已保存值
           if (!wasHidden && panel!.classList.contains('hidden')) {
-            try {
-              const c = getContainer(); if (c) {
-                c.style.setProperty('--bg', lastSaved.editBg)
-                c.style.setProperty('--preview-bg', lastSaved.readBg)
-                c.style.setProperty('--wysiwyg-bg', lastSaved.wysiwygBg)
-              }
-            } catch {}
+            revertAllPreviews()
           }
         } catch {}
       })
@@ -849,14 +933,7 @@ export function initThemeUI(): void {
         const t = ev.target as HTMLElement
         if (!panel || panel.classList.contains('hidden')) return
         if (t.closest('#theme-panel') || t.closest('#btn-theme')) return
-        // 关闭前先还原所有预览变量
-        try {
-          const c = getContainer(); if (c) {
-            c.style.setProperty('--bg', lastSaved.editBg)
-            c.style.setProperty('--preview-bg', lastSaved.readBg)
-            c.style.setProperty('--wysiwyg-bg', lastSaved.wysiwygBg)
-          }
-        } catch {}
+        revertAllPreviews()
         panel.classList.add('hidden')
       } catch {}
     })
@@ -865,14 +942,7 @@ export function initThemeUI(): void {
     document.addEventListener('keydown', (ev) => {
       try {
         if (ev.key === 'Escape' && panel && !panel.classList.contains('hidden')) {
-          // 关闭前先还原所有预览变量
-          try {
-            const c = getContainer(); if (c) {
-              c.style.setProperty('--bg', lastSaved.editBg)
-              c.style.setProperty('--preview-bg', lastSaved.readBg)
-              c.style.setProperty('--wysiwyg-bg', lastSaved.wysiwygBg)
-            }
-          } catch {}
+          revertAllPreviews()
           panel.classList.add('hidden')
           ev.preventDefault()
           ev.stopPropagation()

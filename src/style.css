@@ -798,6 +798,12 @@ body > .block-menu { display: none !important; }
   border: none;
   font-weight: 500;
 }
+/* 代码块内的 code 不需要单独背景，避免双层框 */
+.container.wysiwyg-v2 .ProseMirror pre code {
+  background: transparent !important;
+  padding: 0;
+  border-radius: 0;
+}
 .container.wysiwyg-v2 .ProseMirror blockquote {
   border-left: 4px solid var(--border-strong);
   padding-left: 1.2em;
@@ -920,6 +926,10 @@ body > .block-menu { display: none !important; }
   margin-top: 0; margin-bottom: 0;
   padding-top: 0; padding-bottom: 0;
   line-height: 1.6; /* 与 .editor 相同 */
+  /* 所见模式下去掉代码块自身的卡片背景，只保留外层预览背景，避免出现“双层框” */
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 .container.wysiwyg .preview pre code {
   font-size: 14px; /* 与 .editor 相同 */
@@ -3617,12 +3627,19 @@ html, body { overflow: hidden; }
 
 /* 所见模式代码块：亮色模式（VS Code Light+ 风格） */
 .container.wysiwyg-v2 .ProseMirror pre.code-block-wrapper {
-  background: #f5f5f5 !important;
-  border: 1px solid #e0e0e0;
+  background: transparent !important;
+  border: none !important;
   padding: 12px 16px;
   margin: 0.5em 0;
   border-radius: 4px;
   overflow: auto;
+  box-shadow: none !important;
+}
+/* 代码块内的高亮层和编辑层不需要单独背景 */
+.container.wysiwyg-v2 .ProseMirror pre.code-block-wrapper code,
+.container.wysiwyg-v2 .ProseMirror pre.code-block-wrapper .highlight-layer,
+.container.wysiwyg-v2 .ProseMirror pre.code-block-wrapper .editable-layer {
+  background: transparent !important;
 }
 .container.wysiwyg-v2 .ProseMirror pre.code-block-wrapper .code-layers {
   position: relative;
@@ -3667,8 +3684,9 @@ html, body { overflow: hidden; }
 
 /* 所见模式代码块：夜间模式（VS Code Dark+ 风格） */
 body.dark-mode .container.wysiwyg-v2 .ProseMirror pre.code-block-wrapper {
-  background: #1e1e1e !important;
-  border-color: #3c3c3c !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 body.dark-mode .container.wysiwyg-v2 .ProseMirror pre.code-block-wrapper .highlight-layer {
   color: #d4d4d4 !important;
@@ -3676,6 +3694,9 @@ body.dark-mode .container.wysiwyg-v2 .ProseMirror pre.code-block-wrapper .highli
 body.dark-mode .container.wysiwyg-v2 .ProseMirror pre.code-block-wrapper .editable-layer {
   color: transparent !important;
   caret-color: #d4d4d4 !important;
+  background: transparent !important;
+}
+body.dark-mode .container.wysiwyg-v2 .ProseMirror pre.code-block-wrapper code {
   background: transparent !important;
 }
 body.dark-mode .container.wysiwyg-v2 .ProseMirror pre .highlight-layer .hljs-keyword,
@@ -3714,6 +3735,9 @@ body.dark-mode .container.wysiwyg-v2 .ProseMirror pre .highlight-layer .hljs-pun
     caret-color: #d4d4d4 !important;
     background: transparent !important;
   }
+  body:not(.light-mode) .container.wysiwyg-v2 .ProseMirror pre.code-block-wrapper code {
+    background: transparent !important;
+  }
   .container.wysiwyg-v2 .ProseMirror pre .highlight-layer .hljs-keyword,
   .container.wysiwyg-v2 .ProseMirror pre .highlight-layer .hljs-selector-tag,
   .container.wysiwyg-v2 .ProseMirror pre .highlight-layer .hljs-built_in { color: #569cd6 !important; }
@@ -3737,13 +3761,42 @@ body.dark-mode .container.wysiwyg-v2 .ProseMirror pre .highlight-layer .hljs-pun
   .container.wysiwyg-v2 .ProseMirror pre .highlight-layer .hljs-punctuation { color: #d4d4d4 !important; }
 }
 
-/* 所见模式复制按钮：适配深色代码块背景 */
+/* 所见模式复制按钮：亮色模式下使用深色样式以提高对比度 */
 .container.wysiwyg-v2 #md-wysiwyg-root .overlay-host .ov-codecopy .code-copy {
+  background: rgba(127, 127, 127, 0.12);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  color: var(--fg);
+  /* 调整位置：向左5px，向下5px */
+  transform: translate(-5px, 5px);
+}
+.container.wysiwyg-v2 #md-wysiwyg-root .overlay-host .ov-codecopy .code-copy:hover {
+  background: rgba(127, 127, 127, 0.20);
+  border-color: rgba(0, 0, 0, 0.25);
+  color: var(--fg);
+  transform: translate(-5px, 4px);
+}
+
+/* 所见模式复制按钮：深色模式下使用浅色样式 */
+@media (prefers-color-scheme: dark) {
+  .container.wysiwyg-v2 #md-wysiwyg-root .overlay-host .ov-codecopy .code-copy {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e5e7eb;
+  }
+  .container.wysiwyg-v2 #md-wysiwyg-root .overlay-host .ov-codecopy .code-copy:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
+    color: #fff;
+  }
+}
+
+/* 夜间模式切换时的复制按钮样式 */
+body.dark-mode .container.wysiwyg-v2 #md-wysiwyg-root .overlay-host .ov-codecopy .code-copy {
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: #e5e7eb;
 }
-.container.wysiwyg-v2 #md-wysiwyg-root .overlay-host .ov-codecopy .code-copy:hover {
+body.dark-mode .container.wysiwyg-v2 #md-wysiwyg-root .overlay-host .ov-codecopy .code-copy:hover {
   background: rgba(255, 255, 255, 0.2);
   border-color: rgba(255, 255, 255, 0.4);
   color: #fff;
@@ -3775,8 +3828,8 @@ body.dark-mode .container.wysiwyg-v2 .ProseMirror pre .highlight-layer .hljs-pun
 .codebox .code-copy,
 #md-wysiwyg-root .overlay-host .ov-codecopy .code-copy {
   position: absolute;
-  top: 14px;
-  right: 16px;
+  top: 17px;
+  right: 13px;
   padding: 5px 12px;
   border: 1px solid var(--code-border);
   border-radius: 8px;
@@ -4905,11 +4958,8 @@ body.dark-mode .ai-assistant textarea {
 
 /* 夜间模式 - 容器覆盖 */
 body.dark-mode .container {
-  --bg: #0b0c0e;
   --fg: #e5e7eb;
-  --preview-bg: #12100d;
-  --wysiwyg-bg: #0b1016;
-  background: #0b0c0e !important;
+  background: var(--bg) !important;
 }
 
 /* 夜间模式 - 编辑区域整体背景（包括左右空白） */
@@ -4918,17 +4968,17 @@ body.dark-mode .editor-container,
 body.dark-mode .edit-pane,
 body.dark-mode [class*="editor"],
 body.dark-mode [class*="edit-"] {
-  background: #0b0c0e !important;
+  background: var(--bg) !important;
 }
 
 /* 夜间模式 - 编辑器 */
 body.dark-mode .CodeMirror {
-  background: #0b0c0e !important;
+  background: var(--bg) !important;
   color: #e5e7eb !important;
 }
 
 body.dark-mode .CodeMirror-scroll {
-  background: #0b0c0e !important;
+  background: var(--bg) !important;
 }
 
 body.dark-mode .CodeMirror-gutters {
@@ -4947,7 +4997,7 @@ body.dark-mode .CodeMirror-cursor {
 /* 夜间模式 - 预览区域 */
 body.dark-mode .preview,
 body.dark-mode .preview-body {
-  background: #12100d !important;
+  background: var(--preview-bg) !important;
   color: #e5e7eb !important;
 }
 
