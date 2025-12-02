@@ -526,7 +526,7 @@ function buildManagerDialog() {
   row1.className = 'tm-typecho-footer-row'
   const dirLabel = document.createElement('span')
   dirLabel.className = 'tm-typecho-label-muted'
-  dirLabel.textContent = '默认下载目录（相对当前文件所在目录）：'
+  dirLabel.textContent = '默认下载目录：'
   defaultDirInput = document.createElement('input')
   defaultDirInput.type = 'text'
   defaultDirInput.className = 'tm-typecho-input'
@@ -538,6 +538,45 @@ function buildManagerDialog() {
   })
   row1.appendChild(dirLabel)
   row1.appendChild(defaultDirInput)
+  const btnBrowseFooterDir = document.createElement('button')
+  btnBrowseFooterDir.type = 'button'
+  btnBrowseFooterDir.className = 'tm-typecho-btn'
+  btnBrowseFooterDir.textContent = '浏览...'
+  btnBrowseFooterDir.style.marginLeft = '6px'
+  btnBrowseFooterDir.addEventListener('click', async () => {
+    const ctx = globalContextRef
+    if (!ctx) return
+    try {
+      if (ctx.pickDirectory && typeof ctx.pickDirectory === 'function') {
+        const dir = await ctx.pickDirectory({ defaultPath: defaultDirInput.value || undefined })
+        if (dir) {
+          defaultDirInput.value = String(dir || '')
+          sessionState.settings.defaultDownloadDir = defaultDirInput.value.trim()
+          await saveSettings(ctx, sessionState.settings)
+        }
+        return
+      }
+      if (ctx.pickDocFiles && typeof ctx.pickDocFiles === 'function') {
+        const files = await ctx.pickDocFiles({ multiple: false })
+        const first = Array.isArray(files) ? (files[0] || '') : (files || '')
+        const p = String(first || '').trim()
+        if (!p) return
+        const dir = p.replace(/[\\/][^\\/]*$/, '')
+        defaultDirInput.value = dir
+        sessionState.settings.defaultDownloadDir = defaultDirInput.value.trim()
+        await saveSettings(ctx, sessionState.settings)
+        return
+      }
+      ctx.ui.notice('当前环境不支持目录浏览，请在桌面版中使用。', 'err', 2600)
+    } catch (e) {
+      console.error('[Typecho Manager] 选择默认下载目录失败（底部）', e)
+      try {
+        const msg = e && e.message ? String(e.message) : String(e || '未知错误')
+        ctx.ui.notice('选择默认下载目录失败：' + msg, 'err', 2600)
+      } catch {}
+    }
+  })
+  row1.appendChild(btnBrowseFooterDir)
 
   const row2 = document.createElement('div')
   row2.className = 'tm-typecho-footer-row'
@@ -840,16 +879,48 @@ function joinPath(dir, name) {
   return a.replace(/[\\/]+$/, '') + sep + b.replace(/^[\\/]+/, '')
 }
 
-async function getCurrentBaseDir() {
+async function getCurrentBaseDir(context) {
   try {
     const fn = typeof window !== 'undefined' ? window.flymdGetCurrentFilePath : null
-    if (!fn || typeof fn !== 'function') return null
-    const cur = fn()
-    if (!cur || typeof cur !== 'string') return null
-    return cur.replace(/[\\/][^\\/]*$/, '')
+    if (fn && typeof fn === 'function') {
+      const cur = fn()
+      if (cur && typeof cur === 'string') {
+        return cur.replace(/[\\/][^\\/]*$/, '')
+      }
+    }
   } catch {
-    return null
   }
+  try {
+    const fn2 = typeof window !== 'undefined' ? window.flymdGetDefaultPasteDir : null
+    if (fn2 && typeof fn2 === 'function') {
+      const dir = await fn2()
+      if (dir && typeof dir === 'string') return dir
+    }
+  } catch {}
+  // 兜底：在插件上下文可用时，让用户通过文件选择器选一个文档，以其所在目录作为基准目录
+  try {
+    if (context && context.pickDocFiles && typeof context.pickDocFiles === 'function') {
+      const sel = await context.pickDocFiles({ multiple: false })
+      const first = Array.isArray(sel) ? (sel[0] || '') : (sel || '')
+      const p = String(first || '').trim()
+      if (p) return p.replace(/[\\/][^\\/]*$/, '')
+    }
+  } catch {}
+  return null
+}
+
+function buildDownloadFilename(cid, title, dateStr) {
+  const idStr = String(cid)
+  const rawTitle = String(title || '').trim()
+  const baseTitle = rawTitle || idStr
+  let safeTitle = baseTitle
+    .replace(/[\\/:*?"<>|]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  if (!safeTitle) safeTitle = idStr
+  const core = `${idStr}-${safeTitle}`
+  return (dateStr ? `${dateStr}-` : '') + core + '.md'
 }
 
 async function checkFileExists(context, path) {
@@ -901,6 +972,7 @@ async function downloadSinglePost(context, post) {
     const slug = String(detail?.wp_slug || detail?.slug || cid || '').trim()
     const cats = detail?.categories || detail?.category || post.categories || []
     const tagsRaw = detail?.mt_keywords || detail?.tags || ''
+    const excerptRaw = detail?.mt_excerpt || detail?.excerpt || ''
     const tags = tagsRaw
       ? String(tagsRaw)
           .split(',')
@@ -909,6 +981,7 @@ async function downloadSinglePost(context, post) {
       : []
     const status = String(detail?.post_status || detail?.postStatus || detail?.status || '').toLowerCase() || 'publish'
     const dateRaw = detail?.dateCreated || detail?.date_created || detail?.pubDate || detail?.date || post.dateCreated
+    const excerpt = String(excerptRaw || '').trim()
 
     let mdBody = ''
     try {
@@ -929,59 +1002,74 @@ async function downloadSinglePost(context, post) {
     const m = pad2(dt.getMonth() + 1)
     const day = pad2(dt.getDate())
     const dateStr = isNaN(dt.getTime()) ? '' : `${y}-${m}-${day}`
-    const safeSlug = slug || String(cid)
-    const filename = (dateStr ? `${dateStr}-` : '') + safeSlug + '.md'
+    const filename = buildDownloadFilename(cid, title, dateStr)
 
-    const base = await getCurrentBaseDir()
+    const base = await getCurrentBaseDir(context)
     if (!base) {
-      context.ui.notice('无法确定当前文件所在目录，请先打开一个本地文档后再下载。', 'err', 3000)
+      context.ui.notice('无法确定下载目录：请先打开一个本地文档，或在设置中配置默认粘贴目录后重试。', 'err', 3000)
       return
     }
     let baseDir = base
     if (sessionState.settings.alwaysUseDefaultDir && sessionState.settings.defaultDownloadDir) {
-      baseDir = joinPath(base, sessionState.settings.defaultDownloadDir)
+      const cfgDir = String(sessionState.settings.defaultDownloadDir || '').trim()
+      if (cfgDir) {
+        // 简单判断：以盘符/根路径/UNC 开头时视为绝对路径，否则视为相对基准目录
+        if (/^[a-zA-Z]:[\\/]/.test(cfgDir) || /^\\\\/.test(cfgDir) || /^\//.test(cfgDir)) {
+          baseDir = cfgDir
+        } else {
+          baseDir = joinPath(base, cfgDir)
+        }
+      }
     }
     const fullPath = joinPath(baseDir, filename)
+
+    const categories = Array.isArray(cats)
+      ? cats.map((x) => String(x || '').trim()).filter(Boolean)
+      : (cats ? [String(cats || '').trim()] : [])
 
     const fm = {
       title,
       typechoId: String(cid),
       typechoSlug: safeSlug,
       typechoUpdatedAt: dateRaw ? String(dateRaw) : '',
-      categories: Array.isArray(cats)
-        ? cats.map((x) => String(x || '').trim()).filter(Boolean)
-        : (cats ? [String(cats || '').trim()] : []),
+      categories,
       tags,
       status,
       source: 'typecho'
     }
 
-    const fmLines = []
-    const writeEntry = (k, v) => {
-      if (v === undefined || v === null || v === '') return
-      if (Array.isArray(v)) {
-        fmLines.push(`${k}:`)
-        for (const it of v) {
-          fmLines.push(`  - "${String(it).replace(/"/g, '\\"')}"`)
-        }
-      } else {
-        let s = String(v)
-        if (/[#:?\-&*!\[\]{},>|'%@`]/.test(s) || /\s/.test(s)) {
-          s = `"${s.replace(/"/g, '\\"')}"`
-        }
-        fmLines.push(`${k}: ${s}`)
+    if (excerpt) fm.excerpt = excerpt
+
+    // 从远端自定义字段补充 cover 及 custom_* 元数据
+    let coverUrl = ''
+    const customFieldsRaw = Array.isArray(detail?.custom_fields)
+      ? detail.custom_fields
+      : (Array.isArray(detail?.customFields) ? detail.customFields : [])
+    const customMeta = {}
+    for (const field of customFieldsRaw) {
+      if (!field || typeof field !== 'object') continue
+      const key = String(field.key || field.name || '').trim()
+      if (!key) continue
+      const value = field.value !== undefined && field.value !== null ? String(field.value) : ''
+      if (!value) continue
+      const customKey = `custom_${key}`
+      if (!Object.prototype.hasOwnProperty.call(customMeta, customKey)) {
+        customMeta[customKey] = value
+      }
+      if (!coverUrl && (key === 'thumbnail' || key === 'thumb')) {
+        coverUrl = value
       }
     }
-    writeEntry('title', fm.title)
-    writeEntry('typechoId', fm.typechoId)
-    writeEntry('typechoSlug', fm.typechoSlug)
-    writeEntry('typechoUpdatedAt', fm.typechoUpdatedAt)
-    writeEntry('categories', fm.categories)
-    writeEntry('tags', fm.tags)
-    writeEntry('status', fm.status)
-    writeEntry('source', fm.source)
 
-    const finalDoc = `---\n${fmLines.join('\n')}\n---\n\n${mdBody || ''}`
+    if (!coverUrl) {
+      coverUrl = String(detail?.cover || detail?.thumbnail || detail?.thumb || '').trim()
+    }
+    if (coverUrl) fm.cover = coverUrl
+
+    Object.assign(fm, customMeta)
+
+    const yaml = buildYamlFromMeta(fm)
+    const finalDoc = `---\n${yaml}\n---\n\n${mdBody || ''}`
 
     const exists = await checkFileExists(context, fullPath)
     if (exists) {
@@ -1006,21 +1094,70 @@ async function downloadSinglePost(context, post) {
 
     const writeEntry = (k, v) => {
       if (v === undefined || v === null || v === '') return
+      const t = typeof v
+
+      // 数字：保持为数字字面量
+      if (t === 'number') {
+        if (!Number.isFinite(v)) return
+        fmLines.push(`${k}: ${v}`)
+        return
+      }
+
+      // 布尔：保持为布尔字面量
+      if (t === 'boolean') {
+        fmLines.push(`${k}: ${v}`)
+        return
+      }
+
+      // 数组：逐个元素输出
       if (Array.isArray(v)) {
         if (!v.length) return
         fmLines.push(`${k}:`)
         for (const it of v) {
           if (it === undefined || it === null || it === '') continue
-          fmLines.push(`  - "${String(it).replace(/"/g, '\\"')}"`)
+          const itType = typeof it
+          if (itType === 'number') {
+            if (!Number.isFinite(it)) continue
+            fmLines.push(`  - ${it}`)
+          } else if (itType === 'boolean') {
+            fmLines.push(`  - ${it}`)
+          } else {
+            let s = String(it)
+            if (!s.length) continue
+            if (/[#:?\-&*!\[\]{},>|'%@`]/.test(s) || /\s/.test(s)) {
+              s = `"${s.replace(/"/g, '\\"')}"`
+            }
+            fmLines.push(`  - ${s}`)
+          }
         }
-      } else {
-        let s = String(v)
-        if (!s.length) return
-        if (/[#:?\-&*!\[\]{},>|'%@`]/.test(s) || /\s/.test(s)) {
-          s = `"${s.replace(/"/g, '\\"')}"`
-        }
-        fmLines.push(`${k}: ${s}`)
+        return
       }
+
+      // 对象：以 JSON 形式输出，便于还原
+      if (t === 'object') {
+        try {
+          const json = JSON.stringify(v)
+          if (!json) return
+          fmLines.push(`${k}: ${json}`)
+        } catch {
+          // 回退为字符串
+          let s = String(v)
+          if (!s.length) return
+          if (/[#:?\-&*!\[\]{},>|'%@`]/.test(s) || /\s/.test(s)) {
+            s = `"${s.replace(/"/g, '\\"')}"`
+          }
+          fmLines.push(`${k}: ${s}`)
+        }
+        return
+      }
+
+      // 字符串
+      let s = String(v)
+      if (!s.length) return
+      if (/[#:?\-&*!\[\]{},>|'%@`]/.test(s) || /\s/.test(s)) {
+        s = `"${s.replace(/"/g, '\\"')}"`
+      }
+      fmLines.push(`${k}: ${s}`)
     }
 
     const preferOrder = [
@@ -1047,6 +1184,19 @@ async function downloadSinglePost(context, post) {
     }
 
     return fmLines.join('\n')
+  }
+
+  // 发布前的基础元数据校验（保持保守，避免破坏旧行为）
+  function validatePublishMeta(meta) {
+    const errors = []
+    if (!meta || typeof meta !== 'object') return errors
+    // 目前仅保留结构占位，不做强制约束，避免影响既有文档
+    // 如需扩展规则，可在此追加
+    if (!Array.isArray(meta.categories)) {
+      // 理论上不会触发（调用前已规整为数组），但保留检测以防将来修改
+      errors.push('categories 必须是数组')
+    }
+    return errors
   }
 
   // ---- 发布前选项：JS 弹窗（分类 / 状态 / 时间 / slug / 头图） ----
@@ -1314,8 +1464,9 @@ async function publishCurrentDocument(context) {
     return
   }
   const cid = meta.typechoId || meta.cid || meta.id
- 
+
   const title = String(meta.title || '').trim() || '(未命名)'
+  const excerpt = String(meta.excerpt || '').trim()
   let cats = Array.isArray(meta.categories) ? meta.categories : []
   const tagArr = Array.isArray(meta.tags)
     ? meta.tags
@@ -1357,6 +1508,17 @@ async function publishCurrentDocument(context) {
     }
   } catch {}
 
+  const metaValidationErrors = validatePublishMeta({
+    title,
+    body,
+    categories: cats,
+    status: draft ? 'draft' : 'publish'
+  })
+  if (metaValidationErrors.length) {
+    context.ui.notice('发布前检查失败：' + metaValidationErrors.join('；'), 'err', 2600)
+    return
+  }
+
   const postStruct = {
     title,
     description: body,
@@ -1368,11 +1530,30 @@ async function publishCurrentDocument(context) {
     dateCreated: dt,
     post_status: draft ? 'draft' : 'publish'
   }
+  if (excerpt) {
+    postStruct.mt_excerpt = excerpt
+  }
+
+  const customFieldMap = new Map()
+  // 从 Front Matter 中的 custom_* 字段构造通用自定义字段
+  for (const [key, value] of Object.entries(meta)) {
+    if (!key || !key.startsWith('custom_')) continue
+    const rawKey = key.replace(/^custom_/, '')
+    const k = String(rawKey || '').trim()
+    if (!k) continue
+    if (value === undefined || value === null || value === '') continue
+    customFieldMap.set(k, String(value))
+  }
+  // 头图优先映射到 thumbnail/thumb，除非用户在 custom_* 中显式覆盖
   if (coverUrl) {
-    postStruct.custom_fields = [
-      { key: 'thumbnail', value: coverUrl },
-      { key: 'thumb', value: coverUrl }
-    ]
+    if (!customFieldMap.has('thumbnail')) customFieldMap.set('thumbnail', coverUrl)
+    if (!customFieldMap.has('thumb')) customFieldMap.set('thumb', coverUrl)
+  }
+  if (customFieldMap.size > 0) {
+    postStruct.custom_fields = []
+    for (const [k, v] of customFieldMap.entries()) {
+      postStruct.custom_fields.push({ key: k, value: v })
+    }
   }
 
   try {
@@ -1385,6 +1566,29 @@ async function publishCurrentDocument(context) {
         postStruct,
         !draft
       ])
+      // 尝试回写 Front Matter：保持本地元数据与远端状态一致
+      try {
+        const rawMeta = context.getDocMeta && context.getDocMeta()
+        const meta2 = rawMeta && typeof rawMeta === 'object' ? Object.assign({}, rawMeta) : {}
+        const cidStr = String(cid)
+        meta2.typechoId = cidStr
+        if (!meta2.typechoSlug) meta2.typechoSlug = slug
+        meta2.typechoUpdatedAt = dt.toISOString()
+        if (!meta2.title) meta2.title = title
+        if (!meta2.categories) meta2.categories = cats
+        if (!meta2.tags) meta2.tags = tags
+        if (!meta2.slug) meta2.slug = slug
+        meta2.status = draft ? 'draft' : 'publish'
+        if (!meta2.dateCreated) meta2.dateCreated = dt.toISOString()
+        if (coverUrl && !meta2.cover) meta2.cover = coverUrl
+        if (excerpt && !meta2.excerpt) meta2.excerpt = excerpt
+        const yaml = buildYamlFromMeta(meta2)
+        const docBody = context.getDocBody ? context.getDocBody() : body
+        const newDoc = `---\n${yaml}\n---\n\n${docBody || ''}`
+        context.setEditorValue(newDoc)
+      } catch (e) {
+        console.error('[Typecho Manager] 回写 Front Matter 失败（不影响远端更新）', e)
+      }
       context.ui.notice('远端文章已更新', 'ok', 2300)
     } else {
       // 无远端 ID：执行新建
@@ -1522,8 +1726,43 @@ async function openSettingsDialog(context) {
     const inputDefaultDir = document.createElement('input')
     inputDefaultDir.type = 'text'
     inputDefaultDir.className = 'tm-typecho-settings-input'
-    inputDefaultDir.placeholder = 'typecho-import'
-    addRow('默认下载目录', inputDefaultDir); rows.defaultDir = inputDefaultDir
+    inputDefaultDir.placeholder = 'typecho-import 或绝对路径'
+    const defaultDirRow = document.createElement('div')
+    defaultDirRow.style.display = 'flex'
+    defaultDirRow.style.gap = '8px'
+    defaultDirRow.style.alignItems = 'center'
+    defaultDirRow.appendChild(inputDefaultDir)
+    const btnBrowseDir = document.createElement('button')
+    btnBrowseDir.type = 'button'
+    btnBrowseDir.className = 'tm-typecho-btn'
+    btnBrowseDir.textContent = '浏览...'
+    btnBrowseDir.addEventListener('click', async () => {
+      try {
+        if (context.pickDirectory && typeof context.pickDirectory === 'function') {
+          const dir = await context.pickDirectory({ defaultPath: inputDefaultDir.value || undefined })
+          if (dir) inputDefaultDir.value = String(dir || '')
+          return
+        }
+        if (context.pickDocFiles && typeof context.pickDocFiles === 'function') {
+          const files = await context.pickDocFiles({ multiple: false })
+          const first = Array.isArray(files) ? (files[0] || '') : (files || '')
+          const p = String(first || '').trim()
+          if (!p) return
+          const dir = p.replace(/[\\/][^\\/]*$/, '')
+          inputDefaultDir.value = dir
+          return
+        }
+        context.ui.notice('当前环境不支持目录浏览，请在桌面版中使用。', 'err', 2600)
+      } catch (e) {
+        console.error('[Typecho Manager] 选择默认下载目录失败', e)
+        try {
+          const msg = e && e.message ? String(e.message) : String(e || '未知错误')
+          context.ui.notice('选择默认下载目录失败：' + msg, 'err', 2600)
+        } catch {}
+      }
+    })
+    defaultDirRow.appendChild(btnBrowseDir)
+    addRow('默认下载目录', defaultDirRow); rows.defaultDir = inputDefaultDir
 
     const cbWrap = document.createElement('label')
     cbWrap.className = 'tm-typecho-checkbox'
