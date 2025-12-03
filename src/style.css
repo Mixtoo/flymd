@@ -2109,7 +2109,8 @@ body.focus-mode .lib-float-toggle.show { display: flex; }
 }
 
 .theme-fonts .font-install,
-.theme-fonts .font-reset {
+.theme-fonts .font-reset,
+.theme-fonts .font-manage {
   justify-self: start;
   border: 1px solid var(--border);
   background: var(--bg);
@@ -2130,9 +2131,43 @@ body.focus-mode .lib-float-toggle.show { display: flex; }
 }
 
 .theme-fonts .font-install:hover,
-.theme-fonts .font-reset:hover {
+.theme-fonts .font-reset:hover,
+.theme-fonts .font-manage:hover {
   background: rgba(127,127,127,0.08);
   transform: translateY(-1px);
+}
+
+.font-list {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.font-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 2px 0;
+}
+.font-list-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.font-list-item button.font-delete {
+  border: none;
+  background: transparent;
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 4px;
+}
+.font-list-item button.font-delete:hover {
+  text-decoration: underline;
+}
+.font-list-empty {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 /* 响应式设计 - 主题面板 */

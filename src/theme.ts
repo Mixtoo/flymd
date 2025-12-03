@@ -568,6 +568,7 @@ function createPanel(): HTMLDivElement {
           <span>正文字体全局生效（包括菜单和插件）</span>
         </label>
       </div>
+      <div class="font-list" id="font-list"></div>
     </div>
   `
   return panel
@@ -673,6 +674,7 @@ export function initThemeUI(): void {
     const resetBtn = panel.querySelector('#font-reset') as HTMLButtonElement | null
     const bodyGlobalToggle = panel.querySelector('#font-body-global-toggle') as HTMLInputElement | null
     const fontsWrap = panel.querySelector('.theme-fonts') as HTMLDivElement | null
+    const fontListEl = panel.querySelector('#font-list') as HTMLDivElement | null
     // 构造“安装字体”按钮并重组操作区（避免直接改 HTML 模板造成编码问题）
     let installBtn: HTMLButtonElement | null = null
     if (fontsWrap) {
@@ -730,6 +732,58 @@ export function initThemeUI(): void {
       return { body: outB, mono: outM }
     }
 
+    function renderFontList(): void {
+      try {
+        if (!fontListEl) return
+        const list = loadFontDb()
+        if (!list.length) {
+          fontListEl.innerHTML = '<div class="font-list-empty">暂无已安装字体</div>'
+          return
+        }
+        fontListEl.innerHTML = list.map((f) =>
+          `<div class="font-list-item" data-id="${f.id}">` +
+          `<span class="font-list-item-name">${f.name}</span>` +
+          `<button type="button" class="font-delete">删除</button>` +
+          `</div>`
+        ).join('')
+      } catch {}
+    }
+
+    async function deleteCustomFont(id: string): Promise<void> {
+      try {
+        let db = loadFontDb()
+        const idx = db.findIndex((x) => x.id === id)
+        if (idx < 0) return
+        const f = db[idx]
+        db = db.slice(0, idx).concat(db.slice(idx + 1))
+        saveFontDb(db)
+        // 删除字体文件本体
+        try {
+          await remove(`${FONTS_DIR}/${f.rel}` as any, { baseDir: BaseDirectory.AppLocalData } as any)
+        } catch {}
+        // 移除已注入的 @font-face 样式
+        try {
+          document.querySelectorAll(`style[data-user-font="${f.id}"]`).forEach((el) => {
+            try { el.parentElement?.removeChild(el) } catch {}
+          })
+        } catch {}
+        // 若当前主题偏好中引用了该字体，则回退为默认
+        let cur = loadThemePrefs()
+        const token = `'${f.family}'`
+        let changed = false
+        if (cur.bodyFont && cur.bodyFont.includes(token)) { cur.bodyFont = undefined; changed = true }
+        if (cur.monoFont && cur.monoFont.includes(token)) { cur.monoFont = undefined; changed = true }
+        if (changed) {
+          saveThemePrefs(cur)
+          applyThemePrefs(cur)
+          lastSaved = { ...cur }
+        }
+        // 刷新下拉框与列表
+        rebuildFontSelects(loadThemePrefs())
+        renderFontList()
+      } catch {}
+    }
+
     function rebuildFontSelects(cur: ThemePrefs) {
       try {
         const extras = mergeCustomOptions()
@@ -750,6 +804,7 @@ export function initThemeUI(): void {
       } catch {}
     }
     rebuildFontSelects(prefs)
+    renderFontList()
 
     if (bodyGlobalToggle) bodyGlobalToggle.checked = !!prefs.bodyFontGlobal
 
@@ -777,6 +832,15 @@ export function initThemeUI(): void {
       applyThemePrefs(cur)
       lastSaved = { ...cur }
     })
+    if (fontListEl) fontListEl.addEventListener('click', (ev) => {
+      const t = ev.target as HTMLElement
+      if (!t.classList.contains('font-delete')) return
+      const row = t.closest('.font-list-item') as HTMLDivElement | null
+      const id = row?.dataset.id || ''
+      if (!id) return
+      void deleteCustomFont(id)
+    })
+
     if (resetBtn) resetBtn.addEventListener('click', () => {
       const cur = loadThemePrefs()
       cur.bodyFont = undefined
