@@ -59,7 +59,7 @@ const dict = {
     'file.save': '保存',
     'file.saveas': '另存为…',
 
-    'mode.edit': '编辑',
+    'mode.edit': '源码',
     'mode.read': '阅读',
     'mode.wysiwyg': '所见',
 

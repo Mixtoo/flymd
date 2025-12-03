@@ -208,9 +208,9 @@ class MermaidNodeView implements NodeView {
       })
     })
 
-    // 按 Escape 键退出编辑模式
+    // 按 Escape 键退出源码编辑模式
     const exitEditMode = () => {
-      console.log('[Mermaid Plugin] 退出编辑模式')
+      console.log('[Mermaid Plugin] 退出源码编辑模式')
       this.preWrapper.style.display = 'none'
       this.chartContainer.style.display = 'block'
       // 强制重新渲染
@@ -227,7 +227,7 @@ class MermaidNodeView implements NodeView {
       }
     })
 
-    // 点击外部区域时退出编辑模式
+    // 点击外部区域时退出源码编辑模式
     document.addEventListener('click', this.handleClickOutside)
 
     this.dom.appendChild(this.chartContainer)

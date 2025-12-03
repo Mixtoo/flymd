@@ -727,7 +727,7 @@ async function buildDir(root: string, dir: string, parent: HTMLElement) {
       row.appendChild(iconEl); row.appendChild(label)
       try { if (ext) row.classList.add('file-ext-' + ext) } catch {}
 
-      // 单击加载文档并保持选中；支持 Ctrl+左键在新标签中打开并进入编辑模式
+      // 单击加载文档并保持选中；支持 Ctrl+左键在新标签中打开并进入源码模式
       row.addEventListener('click', async (ev) => {
         try {
           // 忽略非左键点击，以及双击序列中的第二次点击（交给 dblclick 处理）
@@ -740,7 +740,7 @@ async function buildDir(root: string, dir: string, parent: HTMLElement) {
         const win = (window as any)
         const hasFlyOpen = !!(win && typeof win.flymdOpenFile === 'function')
 
-        // Ctrl+左键：通过全局 flymdOpenFile（带标签系统）打开，并在需要时模拟 Ctrl+E 进入编辑模式
+        // Ctrl+左键：通过全局 flymdOpenFile（带标签系统）打开，并在需要时模拟 Ctrl+E 进入源码模式
         if (isCtrlLike && hasFlyOpen) {
           ev.preventDefault()
           try { ev.stopPropagation() } catch {}

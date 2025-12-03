@@ -195,7 +195,7 @@ async function handleEditTemplate(context, tpl) {
     return;
   }
 
-  // 进入编辑模式
+  // 进入编辑模版模式
   try {
     const formData = await showFormDialog({
       title: '📝 编辑模版',

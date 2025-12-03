@@ -29,9 +29,9 @@ export interface TabManagerHooks {
   getDirty: () => boolean
   // 设置 dirty 状态
   setDirty: (dirty: boolean) => void
-  // 获取编辑模式
+  // 获取源码模式
   getMode: () => EditorMode
-  // 设置编辑模式
+  // 设置源码模式
   setMode: (mode: EditorMode) => void
   // 获取所见模式状态
   getWysiwygEnabled: () => boolean

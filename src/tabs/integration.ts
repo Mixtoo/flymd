@@ -650,7 +650,7 @@ function setupDirtySync(): void {
   const flymd = getFlymd()
   let lastMainDirty = false  // 跟踪上次的 dirty 状态
 
-  // 监听编辑模式的输入
+  // 监听源码模式的输入
   const editor = document.getElementById('editor') as HTMLTextAreaElement
   if (editor) {
     editor.addEventListener('input', () => {

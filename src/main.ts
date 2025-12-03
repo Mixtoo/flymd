@@ -3288,7 +3288,7 @@ class NotificationManager {
     },
     'mode-edit': {
       icon: '✏️',
-      bgColor: 'rgba(59,130,246,0.14)', // 编辑模式：偏蓝
+      bgColor: 'rgba(59,130,246,0.14)', // 源码模式：偏蓝
       duration: 1600
     },
     'mode-preview': {
@@ -3435,7 +3435,7 @@ function notifyModeChange(): void {
       msg = '阅读模式'
     } else {
       type = 'mode-edit'
-      msg = '编辑模式'
+      msg = '源码模式'
     }
     NotificationManager.show(type, msg, 1600)
   } catch {}
@@ -5221,7 +5221,7 @@ async function toggleMode() {
     try { editor.focus() } catch {}
     restoreScrollPosition()  // 带重试机制恢复滚动位置
   }
-  ;(document.getElementById('btn-toggle') as HTMLButtonElement).textContent = mode === 'edit' ? '阅读' : '编辑'
+  ;(document.getElementById('btn-toggle') as HTMLButtonElement).textContent = mode === 'edit' ? '阅读' : '源码'
   // 模式切换后，如大纲面板可见，强制按当前模式重建一次大纲
   try {
     const outline = document.getElementById('lib-outline') as HTMLDivElement | null
@@ -5807,7 +5807,7 @@ function renderOutlinePanel() {
     // 优先从当前上下文（WYSIWYG/预览）提取标题（仅在对应模式下启用）
     const ctx = getOutlineContext()
     const heads = ctx.heads
-    // level: 标题级别；id: DOM 锚点或逻辑标识；text: 显示文本；offset: 源码中的大致字符偏移（仅编辑模式下用于跳转）
+    // level: 标题级别；id: DOM 锚点或逻辑标识；text: 显示文本；offset: 源码中的大致字符偏移（仅源码模式下用于跳转）
     const items: { level: number; id: string; text: string; offset?: number }[] = []
     const slug = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9\u4e00-\u9fa5\s-]/gi,'').replace(/\s+/g,'-').slice(0,64) || ('toc-' + Math.random().toString(36).slice(2))
     const useDomHeads = (wysiwyg || mode === 'preview') && heads.length > 0
@@ -5831,7 +5831,7 @@ function renderOutlinePanel() {
           const level = m[1].length
           const text = m[2].trim()
           const id = slug(text + '-' + i)
-          // 记录标题在源码中的大致字符偏移，用于编辑模式下跳转
+          // 记录标题在源码中的大致字符偏移，用于源码模式下跳转
           items.push({ level, id, text, offset })
         }
         // \n 按单字符累计；Windows 下的 \r\n 中 \r 已在 ln 末尾
@@ -5924,7 +5924,7 @@ function renderOutlinePanel() {
           return
         }
 
-        // 编辑模式：根据源码中的字符偏移跳转到 textarea
+        // 源码模式：根据源码中的字符偏移跳转到 textarea
         if (typeof offsetStr === 'string' && offsetStr !== '') {
           const off = Number(offsetStr)
           if (!Number.isFinite(off) || off < 0) return
@@ -6320,7 +6320,7 @@ try {
         if (!wysiwyg) try { preview.classList.add('hidden') } catch {}
       }
       try {
-        (document.getElementById('btn-toggle') as HTMLButtonElement).textContent = mode === 'edit' ? '阅读' : '编辑'
+        (document.getElementById('btn-toggle') as HTMLButtonElement).textContent = mode === 'edit' ? '阅读' : '源码'
       } catch {}
     }
     ;(window as any).flymdGetWysiwygEnabled = () => wysiwyg
@@ -7254,7 +7254,7 @@ function updateFocusSidebarBg() {
 
   // 应用背景色到库侧栏
   if (hasGrid && mode === 'edit' && !wysiwyg) {
-    // 只在编辑模式（非所见）下应用网格背景
+    // 只在源码模式（非所见）下应用网格背景
     library.style.background = bgColor
     library.style.backgroundImage = 'linear-gradient(rgba(127,127,127,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(127,127,127,0.08) 1px, transparent 1px)'
     library.style.backgroundSize = '20px 20px'
@@ -7267,7 +7267,7 @@ function updateFocusSidebarBg() {
       header.style.backgroundPosition = 'unset'
     }
   } else {
-    // 没有网格或不是编辑模式，只应用纯色背景
+    // 没有网格或不是源码模式，只应用纯色背景
     library.style.background = bgColor
     library.style.removeProperty('background-image')
     library.style.removeProperty('background-size')
@@ -7396,14 +7396,14 @@ async function addStickyTodoLine(editBtn: HTMLButtonElement) {
   try {
     // 所见模式下风险较高：暂不支持，避免破坏 WYSIWYG 状态
     if (wysiwyg || wysiwygV2Active) {
-      try { alert('当前所见模式下暂不支持快速待办插入，请先切换回源码编辑模式。') } catch {}
+      try { alert('当前所见模式下暂不支持快速待办插入，请先切换回源码模式。') } catch {}
       return
     }
 
     // 记录插入前模式，用于决定是否自动返回阅读模式
     const prevMode = mode
 
-    // 确保处于编辑模式（必要时等价于用户点了一次“编辑”按钮）
+    // 确保处于源码模式（必要时等价于用户点了一次“源码”按钮）
     if (mode !== 'edit') {
       try { await toggleStickyEditMode(editBtn) } catch {}
     }
@@ -7444,7 +7444,7 @@ async function toggleStickyEditMode(btn: HTMLButtonElement) {
     try { await renderPreview() } catch {}
     try { preview.classList.remove('hidden') } catch {}
   } else {
-    // 切换到编辑模式
+    // 切换到源码模式
     mode = 'edit'
     try { preview.classList.add('hidden') } catch {}
     try { editor.focus() } catch {}
@@ -7454,7 +7454,7 @@ async function toggleStickyEditMode(btn: HTMLButtonElement) {
   const newIsEditing = mode === 'edit'
   btn.innerHTML = getStickyEditIcon(newIsEditing)
   btn.classList.toggle('active', newIsEditing)
-  btn.title = newIsEditing ? '切换到阅读模式' : '切换到编辑模式'
+  btn.title = newIsEditing ? '切换到阅读模式' : '切换到源码模式'
   try { notifyModeChange() } catch {}
 }
 
@@ -8079,7 +8079,7 @@ function createStickyNoteControls() {
   // 编辑按钮（笔图标，切换编辑/阅读模式）
   const editBtn = document.createElement('button')
   editBtn.className = 'sticky-note-btn sticky-note-edit-btn'
-  editBtn.title = '切换到编辑模式'
+  editBtn.title = '切换到源码模式'
   editBtn.innerHTML = getStickyEditIcon(false)
   editBtn.addEventListener('click', async () => await toggleStickyEditMode(editBtn))
 
@@ -8161,7 +8161,7 @@ async function enterStickyNoteMode(filePath: string) {
     console.error('[便签模式] 进入专注模式失败:', e)
   }
 
-  // 3. 切换到阅读模式（先记住之前的编辑模式状态）
+  // 3. 切换到阅读模式（先记住之前的源码模式状态）
   try {
     if (store) {
       await store.set('editorModeBeforeSticky', {
@@ -9306,7 +9306,7 @@ function bindEvents() {
   if (btnSaveas) btnSaveas.addEventListener('click', guard(() => saveAs()))
   if (btnToggle) btnToggle.addEventListener('click', guard(() => toggleMode()))
   if (btnWysiwyg) btnWysiwyg.addEventListener('click', guard(() => toggleWysiwyg()))
-  // 查找替换对话框（编辑模式，Ctrl+H）
+  // 查找替换对话框（源码模式，Ctrl+H）
   let _findPanel: HTMLDivElement | null = null
   let _findInput: HTMLInputElement | null = null
   let _replaceInput: HTMLInputElement | null = null
@@ -9379,7 +9379,7 @@ function bindEvents() {
 
     function norm(s: string) { return (_findCase?.checked ? s : s.toLowerCase()) }
     function getSel() { return { s: editor.selectionStart >>> 0, e: editor.selectionEnd >>> 0 } }
-    // 设置选区并将其滚动到视口中间附近（仅编辑模式 textarea）
+    // 设置选区并将其滚动到视口中间附近（仅源码模式 textarea）
     function setSel(s: number, e: number) {
       try {
         const ta = editor as HTMLTextAreaElement
@@ -9591,7 +9591,7 @@ function bindEvents() {
       if (!term) return
       // 阅读模式不支持替换
       if (mode === 'preview' && !wysiwyg) {
-        alert('阅读模式下不支持替换，请切换到编辑模式')
+        alert('阅读模式下不支持替换，请切换到源码模式')
         return
       }
       if (wysiwyg) { try { wysiwygV2ReplaceOneSel(term, rep, !!_findCase?.checked) } catch {} ; return }
@@ -9617,7 +9617,7 @@ function bindEvents() {
       const rep = String(_replaceInput?.value || '')
       // 阅读模式不支持替换
       if (mode === 'preview' && !wysiwyg) {
-        alert('阅读模式下不支持替换，请切换到编辑模式')
+        alert('阅读模式下不支持替换，请切换到源码模式')
         return
       }
       if (wysiwyg) { try { wysiwygV2ReplaceAllInDoc(term, rep, !!_findCase?.checked) } catch {} ; return }
@@ -9726,7 +9726,7 @@ function bindEvents() {
     }
   }
 
-  // 编辑模式：成对标记补全（自动/环绕/跳过/成对删除）
+  // 源码模式：成对标记补全（自动/环绕/跳过/成对删除）
   try {
     (editor as HTMLTextAreaElement).addEventListener('keydown', (e: KeyboardEvent) => { if ((e as any).defaultPrevented) return; if (e.ctrlKey || e.metaKey || e.altKey) return
       // 反引号特殊处理：支持 ``` 围栏（空选区自动补全围栏；有选区则环绕为代码块）
@@ -9921,7 +9921,7 @@ function bindEvents() {
       dirty = true; try { refreshTitle(); refreshStatus() } catch {}
       if (mode === 'preview') { try { void renderPreview() } catch {} } else if (wysiwyg) { try { scheduleWysiwygRender() } catch {} }
     })
-  } catch {}  // 编辑模式：Tab/Shift+Tab 段落缩进/反缩进
+  } catch {}  // 源码模式：Tab/Shift+Tab 段落缩进/反缩进
   try {
     (editor as HTMLTextAreaElement).addEventListener('keydown', (e: KeyboardEvent) => {
       if (e.key !== 'Tab' || e.ctrlKey || e.metaKey) return
@@ -11230,12 +11230,12 @@ function bindEvents() {
       // 移除透明度 CSS 变量，确保主窗口不透明
       try { document.documentElement.style.removeProperty('--sticky-opacity') } catch {}
 
-      // 恢复编辑模式状态（如果有便签前记录）
+      // 恢复源码模式状态（如果有便签前记录）
       try {
         if (store) {
           const editorState = await store.get('editorModeBeforeSticky') as { mode: string; wysiwygV2Active: boolean } | null
           if (editorState) {
-            // 恢复编辑模式，并清除记录
+            // 恢复源码模式，并清除记录
             // 注意：这里只是恢复状态变量，UI 切换会在后续文件打开时自动处理
             mode = editorState.mode as 'edit' | 'preview'
             // wysiwygV2Active 的恢复需要等 UI 加载完成后处理，这里只清除记录
@@ -11244,7 +11244,7 @@ function bindEvents() {
           }
         }
       } catch (e) {
-        console.warn('[启动] 恢复编辑模式状态失败:', e)
+        console.warn('[启动] 恢复源码模式状态失败:', e)
       }
     }
 

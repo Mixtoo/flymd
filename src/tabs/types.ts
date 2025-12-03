@@ -2,7 +2,7 @@
  * 多标签系统类型定义
  */
 
-// 编辑模式
+// 源码模式
 export type EditorMode = 'edit' | 'preview'
 
 // 标签文档状态
@@ -14,7 +14,7 @@ export interface TabDocument {
   scrollTop: number                   // 滚动位置
   cursorLine: number                  // 光标所在行
   cursorCol: number                   // 光标所在列
-  mode: EditorMode                    // 当前编辑模式
+  mode: EditorMode                    // 当前源码模式
   wysiwygEnabled: boolean             // 是否启用所见模式
   createdAt: number                   // 创建时间戳
   lastActiveAt: number                // 最后激活时间戳

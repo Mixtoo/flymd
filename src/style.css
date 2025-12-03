@@ -521,7 +521,7 @@ body.compact-titlebar .window-btn.window-close:hover {
 .container.wysiwyg { /* legacy overlay 标记，保留但不隐藏容器，避免误伤 */ }
 .container.wysiwyg-v2 { background: var(--wysiwyg-bg) !important; }
 
-/* 编辑模式网格背景 - 应用到整个容器，包括左右留白 */
+/* 源码模式网格背景 - 应用到整个容器，包括左右留白 */
 .container.edit-grid-bg:not(.wysiwyg-v2) {
   background-image:
     linear-gradient(rgba(127,127,127,0.08) 1px, transparent 1px),
@@ -550,7 +550,7 @@ body.compact-titlebar .window-btn.window-close:hover {
   transition: padding-left 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding-top 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding-right 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding-bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 编辑模式：定宽居中（与阅读/所见一致） */
+/* 源码模式：定宽居中（与阅读/所见一致） */
 .container:not(.wysiwyg):not(.wysiwyg-v2) .editor {
   display: block;
   margin-left: auto;

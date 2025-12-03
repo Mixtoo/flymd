@@ -21,7 +21,7 @@ export interface ThemePrefs {
   editBgDark?: string
   /** 夜间模式阅读背景 */
   readBgDark?: string
-  /** 编辑模式羊皮风格 */
+  /** 源码模式羊皮风格 */
   parchmentEdit?: boolean
   /** 阅读模式羊皮风格 */
   parchmentRead?: boolean
@@ -35,7 +35,7 @@ export interface ThemePrefs {
   bodyFontGlobal?: boolean
   /** 自定义等宽字体（编辑器与代码），为空则使用系统等宽栈 */
   monoFont?: string
-  /** 编辑模式网格背景 */
+  /** 源码模式网格背景 */
   gridBackground?: boolean
   /** 文件夹图标 */
   folderIcon?: string
@@ -258,7 +258,7 @@ export function applyThemePrefs(prefs: ThemePrefs): void {
         // 阅读模式
         currentBg = isDarkMode ? (prefs.readBgDark || DEFAULT_PREFS.readBgDark || '#12100d') : prefs.readBg
       } else {
-        // 编辑模式
+        // 源码模式
         currentBg = isDarkMode ? (prefs.editBgDark || DEFAULT_PREFS.editBgDark || '#0b0c0e') : prefs.editBg
       }
     }

@@ -3,7 +3,7 @@
  *
  * 目标：
  * - 为每个标签维护独立的撤销/重做栈
- * - 只在编辑模式且焦点在 textarea 时接管 Ctrl+Z / Ctrl+Y
+ * - 只在源码模式且焦点在 textarea 时接管 Ctrl+Z / Ctrl+Y
  * - 不修改 TabManager / main.ts，对现有行为最小侵入
  */
 
@@ -153,7 +153,7 @@ export class TextareaUndoManager {
     }
 
     this.keydownHandler = (e: KeyboardEvent) => {
-      // 只在编辑模式 + 焦点在 textarea 时接管
+      // 只在源码模式 + 焦点在 textarea 时接管
       const flymd = (window as any) ?? {}
       const isEditMode = flymd.flymdGetMode?.() === 'edit'
       if (!isEditMode) return

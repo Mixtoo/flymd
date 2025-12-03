@@ -617,7 +617,7 @@ context.addContextMenuItem({
 {
   selectedText: string,        // 当前选中的文本
   cursorPosition: number,      // 光标位置
-  mode: 'edit' | 'preview' | 'wysiwyg',  // 当前编辑模式
+  mode: 'edit' | 'preview' | 'wysiwyg',  // 当前源码模式
   filePath: string | null      // 当前文件路径
 }
 ```
@@ -673,7 +673,7 @@ export function activate(context) {
     label: '格式化代码',
     icon: '🎨',
     condition: (ctx) => {
-      // 仅在编辑模式且有选中文本时显示
+      // 仅在源码模式且有选中文本时显示
       return ctx.mode === 'edit' && ctx.selectedText.length > 0;
     },
     onClick: (ctx) => {
@@ -1097,7 +1097,7 @@ context.addMenuItem({
 **注意事项：**
 - 文件必须已保存到磁盘（有绝对路径）
 - 仅支持文本类型文件（`.md`、`.markdown`、`.txt`）
-- 便签窗口仍可切换回编辑模式，用户保留完整编辑能力
+- 便签窗口仍可切换回源码模式，用户保留完整编辑能力
 - 便签模式不影响主窗口，两者可同时运行
 
 **实战示例：快速待办便签**

@@ -219,7 +219,7 @@ sudo xattr -r -d com.apple.quarantine /Applications/flymd.app
 
 - `Ctrl+T` 开启空白标签页，当前文档不被覆盖
 - `Ctrl+Tab` / `Ctrl+Shift+Tab` 循环切换标签
-- 按住 `Ctrl` 点击文库文档，新标签打开并进入编辑模式
+- 按住 `Ctrl` 点击文库文档，新标签打开并进入源码模式
 - 标签页支持右键菜单
 
 ### 图片与同步
