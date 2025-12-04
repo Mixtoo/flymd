@@ -45,8 +45,11 @@ class MathInlineNodeView implements NodeView {
       const code = this.node.textContent || ''
       const value = this.node.attrs.value || code
 
-      // 动态导入 KaTeX
-      const katex = await import('katex')
+      // 动态导入 KaTeX 及其 CSS（CSS 只会加载一次，用于隐藏 .katex-mathml）
+      const [katex] = await Promise.all([
+        import('katex'),
+        import('katex/dist/katex.min.css')
+      ])
 
       this.katexContainer.innerHTML = ''
       katex.default.render(value, this.katexContainer, {
@@ -121,8 +124,11 @@ class MathBlockNodeView implements NodeView {
     try {
       const value = this.node.attrs.value || this.node.textContent || ''
 
-      // 动态导入 KaTeX
-      const katex = await import('katex')
+      // 动态导入 KaTeX 及其 CSS（CSS 只会加载一次，用于隐藏 .katex-mathml）
+      const [katex] = await Promise.all([
+        import('katex'),
+        import('katex/dist/katex.min.css')
+      ])
 
       this.katexContainer.innerHTML = ''
       katex.default.render(value, this.katexContainer, {
