@@ -532,7 +532,10 @@ function setupBracketPairingForWysiwyg(pm: HTMLElement | null) {
   const handleBeforeInput = (ev: InputEvent) => {
     try {
       // 防抖：如果刚刚执行过环抱补全，跳过后续的 beforeinput 事件
-      if (Date.now() - _lastWrapTs < 100) return
+      if (Date.now() - _lastWrapTs < 100) {
+        ev.preventDefault()  // 必须阻止浏览器默认行为，否则会重复插入字符
+        return
+      }
       snapshotSelection()
       const data = (ev as any).data as string || ''
       if (!data || data.length !== 1) return
