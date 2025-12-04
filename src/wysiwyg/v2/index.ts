@@ -563,6 +563,10 @@ function setupBracketPairingForWysiwyg(pm: HTMLElement | null) {
       const state = view.state
       const sel = state.selection
       if (!(sel instanceof TextSelection)) return
+      // 代码块 / 数学块 / 行内代码中不做括号自动补全，避免干扰源码输入
+      const parent: any = sel.$from?.parent
+      const typeName: string | undefined = parent?.type?.name
+      if (typeName === 'code_block' || typeName === 'code_inline' || typeName === 'math_block' || typeName === 'math_inline') return
       const from = sel.from >>> 0
       const to = sel.to >>> 0
 
@@ -619,6 +623,10 @@ function setupBracketPairingForWysiwyg(pm: HTMLElement | null) {
       const state = view.state
       const sel = state.selection
       if (!(sel instanceof TextSelection)) return
+      // 代码块 / 数学块 / 行内代码中不做括号自动补全，避免干扰源码输入
+      const parent: any = sel.$from?.parent
+      const typeName: string | undefined = parent?.type?.name
+      if (typeName === 'code_block' || typeName === 'code_inline' || typeName === 'math_block' || typeName === 'math_inline') return
 
       // 组合输入 + 之前存在选区：环抱补全（ch + 选中文本 + closeCh）
       if (prevSelFrom < prevSelTo && prevSelText) {
@@ -672,6 +680,10 @@ function setupBracketPairingForWysiwyg(pm: HTMLElement | null) {
       const state = view.state
       const sel = state.selection
       if (!(sel instanceof TextSelection)) return
+      // 代码块 / 数学块 / 行内代码中不做括号自动补全，避免干扰源码输入
+      const parent: any = sel.$from?.parent
+      const typeName: string | undefined = parent?.type?.name
+      if (typeName === 'code_block' || typeName === 'code_inline' || typeName === 'math_block' || typeName === 'math_inline') return
       if (!sel.empty) return
 
       const pos = sel.from >>> 0
@@ -1576,7 +1588,7 @@ function enterLatexSourceEdit(hitEl: HTMLElement) {
     if (!mathEl) return
     const isNew = !!(mathEl as any).dataset?.flymdNewMath
     try { delete (mathEl as any).dataset?.flymdNewMath } catch {}
-    const rawCode = (mathEl.dataset?.value || mathEl.textContent || '')
+    const rawCode = (mathEl.dataset?.value || '')
     const code = String(rawCode || '').trim()
     const ov = ensureOverlayHost()
 

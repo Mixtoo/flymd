@@ -1,4 +1,4 @@
-// Milkdown Math 插件：修复 KaTeX 渲染时显示源代码的问题
+// Milkdown Math 插件：修复 KaTeX 渲染时源码丢失/污染的问题
 import { $view } from '@milkdown/utils'
 import { mathInlineSchema, mathBlockSchema } from '@milkdown/plugin-math'
 import type { Node } from '@milkdown/prose/model'
@@ -44,6 +44,8 @@ class MathInlineNodeView implements NodeView {
     try {
       const code = this.node.textContent || ''
       const value = this.node.attrs.value || code
+      // 记录源码公式，供 Latex 源码编辑弹窗使用（不要从 textContent 反解析）
+      this.dom.dataset.value = String(value || '')
 
       // 动态导入 KaTeX
       const katex = await import('katex')
@@ -120,6 +122,8 @@ class MathBlockNodeView implements NodeView {
   private async renderMath() {
     try {
       const value = this.node.attrs.value || this.node.textContent || ''
+      // 记录源码公式，供 Latex 源码编辑弹窗使用（不要从 textContent 反解析）
+      this.dom.dataset.value = String(value || '')
 
       // 动态导入 KaTeX
       const katex = await import('katex')
@@ -168,4 +172,5 @@ export const mathBlockViewPlugin = $view(mathBlockSchema.node, () => {
   return (node, view, getPos) => {
     return new MathBlockNodeView(node, view, getPos as () => number | undefined)
   }
-})
+}
+)
