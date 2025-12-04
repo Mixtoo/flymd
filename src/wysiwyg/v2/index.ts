@@ -44,6 +44,7 @@ let _codeCopyScrollHandler: (() => void) | null = null
 let _codeCopyResizeObserver: ResizeObserver | null = null
 let _codeCopyWindowResizeHandler: (() => void) | null = null
 let _inlineCodeMouseTimer: number | null = null
+let _rootMouseDownHandler: ((ev: MouseEvent) => void) | null = null
 
 // 根据 DOM 元素删除 Milkdown 文档中的对应节点（仅用于所见模式内简易删除）
 function deleteWysiwygNodeByDom(el: HTMLElement | null, typeNames: string[]): void {
@@ -676,6 +677,34 @@ function setupBracketPairingForWysiwyg(pm: HTMLElement | null) {
   try { pm.addEventListener('beforeinput', (e) => { try { handleBeforeInput(e as any) } catch {} }, true) } catch {}
   try { pm.addEventListener('input', (e) => { try { handleInput(e as any) } catch {} }, true) } catch {}
   try { pm.addEventListener('keydown', (e) => { try { handleKeydown(e as any) } catch {} }, true) } catch {}
+
+  // 兜底：空白/内容较少时，点击编辑区域外围空白也能把光标放回文档末尾并保持焦点
+  try {
+    const rootEl = _root as HTMLElement | null
+    if (rootEl) {
+      if (_rootMouseDownHandler) {
+        try { rootEl.removeEventListener('mousedown', _rootMouseDownHandler, true) } catch {}
+      }
+      _rootMouseDownHandler = (ev: MouseEvent) => {
+        try {
+          const tgt = ev.target as HTMLElement | null
+          // ProseMirror 内部点击完全交给编辑器自身处理
+          if (tgt && tgt.closest('.ProseMirror')) return
+          const view = _getView()
+          if (!view) return
+          const state = view.state
+          const doc = state.doc
+          const safePos = doc.content.size >>> 0
+          const tr = state.tr.setSelection(TextSelection.create(doc, safePos))
+          view.dispatch(tr.scrollIntoView())
+          try { view.focus() } catch {}
+          ev.preventDefault()
+          try { ev.stopPropagation() } catch {}
+        } catch {}
+      }
+      rootEl.addEventListener('mousedown', _rootMouseDownHandler, true)
+    }
+  } catch {}
 }
 function exitInlineCodeToRight(focusView = true): boolean {
   try {
