@@ -1674,7 +1674,7 @@ function enterLatexSourceEdit(hitEl: HTMLElement) {
     inner.appendChild(header)
 
     const ta = document.createElement('textarea')
-    const placeholder = '在此输入Katex公式'
+    const placeholder = '在此输入Katex公式（如出现两个Katex公式是为了占位/请直接忽略。切换模式或者下次打开自动消失）'
     const displayCode = (isBlock && isNew && !code) ? placeholder : code
     ta.value = (isBlock ? ('$$\n' + (displayCode || '') + '\n$$') : ('$' + (displayCode || '') + '$'))
     ta.style.width = '100%'
