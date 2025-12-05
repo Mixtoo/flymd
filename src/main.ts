@@ -57,6 +57,24 @@ import { createImageUploader } from './core/imageUpload'
 import { createPluginMarket, compareInstallableItems, FALLBACK_INSTALLABLES } from './extensions/market'
 import type { InstallableItem } from './extensions/market'
 import {
+  type StickyNoteColor,
+  type StickyNoteReminderMap,
+  type StickyNotePrefs,
+  STICKY_NOTE_PREFS_FILE,
+  STICKY_NOTE_DEFAULT_OPACITY,
+  STICKY_NOTE_DEFAULT_COLOR,
+  STICKY_NOTE_VALID_COLORS,
+  loadStickyNotePrefsCore,
+  saveStickyNotePrefsCore,
+  type StickyNotePrefsDeps,
+  applyStickyNoteAppearance,
+  type StickyNoteModeDeps,
+  type StickyNoteModeResult,
+  type StickyNoteWindowDeps,
+  enterStickyNoteModeCore,
+  restoreWindowStateBeforeStickyCore,
+} from './modes/stickyNote'
+import {
   ensurePluginsDir,
   parseRepoInput,
   compareVersions,
@@ -91,18 +109,8 @@ import { initAutoHideScrollbar, rescanScrollContainers } from './core/scrollbar'
 
 type Mode = 'edit' | 'preview'
 type LibSortMode = 'name_asc' | 'name_desc' | 'mtime_asc' | 'mtime_desc'
-type StickyNoteColor = 'white' | 'gray' | 'black' | 'yellow' | 'pink' | 'blue' | 'green' | 'orange' | 'purple' | 'red'
-type StickyNoteReminderMap = Record<string, Record<string, boolean>>
-type StickyNotePrefs = { opacity: number; color: StickyNoteColor; reminders?: StickyNoteReminderMap }
-
 // 最近文件最多条数
 const RECENT_MAX = 5
-
-// 便签模式配置文件（仅存储颜色和透明度）
-const STICKY_NOTE_PREFS_FILE = 'flymd-sticky-note.json'
-const STICKY_NOTE_DEFAULT_OPACITY = 0.85
-const STICKY_NOTE_DEFAULT_COLOR: StickyNoteColor = 'white'
-const STICKY_NOTE_VALID_COLORS: StickyNoteColor[] = ['white', 'gray', 'black', 'yellow', 'pink', 'blue', 'green', 'orange', 'purple', 'red']
 
 // 渲染器（延迟初始化，首次进入预览时创建）
 let md: MarkdownIt | null = null
@@ -7204,107 +7212,27 @@ async function toggleStickyWindowOnTop(btn: HTMLButtonElement) {
   }
 }
 
-// 便签模式配置路径（优先使用应用数据目录，失败则退化为当前目录）
-async function getStickyNotePrefsPath(): Promise<string> {
-  try {
-    const dir = await appLocalDataDir()
-    if (dir && typeof dir === 'string') {
-      const sep = dir.includes('\\') ? '\\' : '/'
-      return dir.replace(/[\\/]+$/, '') + sep + STICKY_NOTE_PREFS_FILE
-    }
-  } catch {}
-  return STICKY_NOTE_PREFS_FILE
+const stickyNotePrefsDeps: StickyNotePrefsDeps = {
+  appLocalDataDir,
+  readTextFileAnySafe,
+  writeTextFileAnySafe,
+  getStore: () => store,
 }
 
 // 读取便签模式配置（颜色和透明度），带 Store 兼容回退
 async function loadStickyNotePrefs(): Promise<StickyNotePrefs> {
-  // 1) 首选：本地 JSON 配置文件
-  try {
-    const path = await getStickyNotePrefsPath()
-    const text = await readTextFileAnySafe(path)
-    if (text && text.trim()) {
-      const obj = JSON.parse(text) as any
-      const rawOpacity = typeof obj.opacity === 'number' ? obj.opacity : STICKY_NOTE_DEFAULT_OPACITY
-      const rawColor = typeof obj.color === 'string' ? obj.color : STICKY_NOTE_DEFAULT_COLOR
-      const opacity = Math.max(0, Math.min(1, rawOpacity))
-      const color = STICKY_NOTE_VALID_COLORS.includes(rawColor as StickyNoteColor)
-        ? (rawColor as StickyNoteColor)
-        : STICKY_NOTE_DEFAULT_COLOR
-      let reminders: StickyNoteReminderMap | undefined
-      try {
-        if (obj && typeof obj.reminders === 'object' && obj.reminders !== null) {
-          const map: StickyNoteReminderMap = {}
-          for (const [file, v] of Object.entries(obj.reminders as any)) {
-            if (!v || typeof v !== 'object') continue
-            const inner: Record<string, boolean> = {}
-            for (const [k, flag] of Object.entries(v as any)) {
-              if (flag === true) inner[k] = true
-            }
-            if (Object.keys(inner).length > 0) map[file] = inner
-          }
-          reminders = map
-        }
-      } catch {}
-      if (reminders) stickyNoteReminders = reminders
-      else stickyNoteReminders = {}
-      return { opacity, color, reminders }
-    }
-  } catch {}
-
-  // 2) 兼容旧版：从 Store 读取一次，并同步写入本地配置文件
-  try {
-    if (store) {
-      const savedOpacity = await store.get('stickyNoteOpacity') as number | null
-      const savedColor = await store.get('stickyNoteColor') as string | null
-      let opacity = STICKY_NOTE_DEFAULT_OPACITY
-      let color: StickyNoteColor = STICKY_NOTE_DEFAULT_COLOR
-      if (typeof savedOpacity === 'number' && Number.isFinite(savedOpacity)) {
-        opacity = Math.max(0, Math.min(1, savedOpacity))
-      }
-      if (savedColor && STICKY_NOTE_VALID_COLORS.includes(savedColor as StickyNoteColor)) {
-        color = savedColor as StickyNoteColor
-      }
-      stickyNoteReminders = {}
-      const prefs: StickyNotePrefs = { opacity, color, reminders: stickyNoteReminders }
-      try { await saveStickyNotePrefs(prefs, true) } catch {}
-      return prefs
-    }
-  } catch {}
-
-  // 3) 默认值
-  stickyNoteReminders = {}
-  return { opacity: STICKY_NOTE_DEFAULT_OPACITY, color: STICKY_NOTE_DEFAULT_COLOR, reminders: stickyNoteReminders }
+  const { prefs, reminders } = await loadStickyNotePrefsCore(stickyNotePrefsDeps)
+  stickyNoteReminders = reminders
+  return { ...prefs, reminders }
 }
 
 // 保存便签模式配置到本地文件，并可选写回 Store（兼容旧版本）
 async function saveStickyNotePrefs(prefs: StickyNotePrefs, skipStore = false): Promise<void> {
-  const opacity = Math.max(0, Math.min(1, Number(prefs.opacity) || STICKY_NOTE_DEFAULT_OPACITY))
-  const color = STICKY_NOTE_VALID_COLORS.includes(prefs.color)
-    ? prefs.color
-    : STICKY_NOTE_DEFAULT_COLOR
   const reminders = prefs.reminders ?? stickyNoteReminders
   if (reminders && typeof reminders === 'object') {
     stickyNoteReminders = reminders
   }
-  const safe: StickyNotePrefs = { opacity, color }
-  if (stickyNoteReminders && Object.keys(stickyNoteReminders).length > 0) {
-    safe.reminders = stickyNoteReminders
-  }
-  try {
-    const path = await getStickyNotePrefsPath()
-    await writeTextFileAnySafe(path, JSON.stringify(safe))
-  } catch (e) {
-    console.warn('[便签模式] 保存便签配置文件失败:', e)
-  }
-  if (!skipStore && store) {
-    try {
-      await store.set('stickyNoteOpacity', safe.opacity)
-      await store.set('stickyNoteColor', safe.color)
-      await store.save()
-    } catch (e) {
-      console.warn('[便签模式] 保存便签配置到 Store 失败:', e)
-    }
-  }
+  await saveStickyNotePrefsCore(stickyNotePrefsDeps, prefs, stickyNoteReminders, skipStore)
 }
 
 // 切换透明度滑块显示
@@ -7368,77 +7296,17 @@ function toggleStickyOpacitySlider(btn: HTMLButtonElement) {
 async function setStickyNoteOpacity(opacity: number) {
   stickyNoteOpacity = Math.max(0, Math.min(1, opacity))
 
-  // 设置 CSS 变量，让 rgba() 背景生效
-  document.documentElement.style.setProperty('--sticky-opacity', String(stickyNoteOpacity))
-
-  // 根据新的透明度更新文字样式
-  updateStickyTextStyle(stickyNoteColor, stickyNoteOpacity)
+  // 将颜色/透明度统一应用到 DOM
+  applyStickyNoteAppearance(stickyNoteColor, stickyNoteOpacity)
 
   // 持久化到本地配置文件（并兼容旧版 Store）
   await saveStickyNotePrefs({ opacity: stickyNoteOpacity, color: stickyNoteColor })
 }
 
-// 便签颜色应用到 DOM（仅设置 CSS 变量，不做持久化）
-function applyStickyNoteColorToDom(color: StickyNoteColor) {
-  const root = document.documentElement
-  let rgb = '255, 255, 255' // 白色
-  let fg: string | null = null
-  if (color === 'gray') {
-    rgb = '229, 231, 235'         // 灰色
-  } else if (color === 'black') {
-    rgb = '15, 23, 42'            // 深色
-    fg = '#e5e7eb'                // 浅字色，增强对比度
-  } else if (color === 'yellow') {
-    rgb = '252, 211, 77'          // 便签黄
-  } else if (color === 'pink') {
-    rgb = '252, 231, 243'         // 粉色
-  } else if (color === 'blue') {
-    rgb = '219, 234, 254'         // 蓝色
-  } else if (color === 'green') {
-    rgb = '209, 250, 229'         // 绿色
-  } else if (color === 'orange') {
-    rgb = '254, 215, 170'         // 橙色
-  } else if (color === 'purple') {
-    rgb = '233, 213, 255'         // 紫色
-  } else if (color === 'red') {
-    rgb = '254, 202, 202'         // 红色
-  }
-  root.style.setProperty('--sticky-rgb', rgb)
-  if (fg) root.style.setProperty('--sticky-fg', fg)
-  else root.style.removeProperty('--sticky-fg')
-
-  // 根据透明度和背景色调整文字样式
-  updateStickyTextStyle(color, stickyNoteOpacity)
-}
-
-// 根据背景色和透明度动态调整文字样式，确保在任何透明度下都清晰可读
-function updateStickyTextStyle(color: StickyNoteColor, opacity: number) {
-  const root = document.documentElement
-
-  // 黑色背景始终使用白色文字，不需要额外处理
-  if (color === 'black') {
-    root.style.removeProperty('--sticky-text-shadow')
-    return
-  }
-
-  // 对于浅色背景（白色、灰色、黄色），当透明度较高时添加文字阴影增强可读性
-  // 透明度 < 0.6 时（即超过40%透明），添加文字阴影
-  if (opacity < 0.6) {
-    // 添加白色外发光效果，让文字在任何背景下都清晰
-    const shadowStrength = Math.max(0, (0.6 - opacity) * 2) // 0 到 0.8
-    const shadowBlur = 2 + shadowStrength * 3 // 2px 到 5px
-    const shadowColor = `rgba(255, 255, 255, ${0.8 + shadowStrength * 0.2})` // 0.8 到 1.0
-    root.style.setProperty('--sticky-text-shadow',
-      `0 0 ${shadowBlur}px ${shadowColor}, 0 0 ${shadowBlur * 1.5}px ${shadowColor}`)
-  } else {
-    root.style.removeProperty('--sticky-text-shadow')
-  }
-}
-
 // 设置便签背景色（含持久化）
 async function setStickyNoteColor(color: StickyNoteColor) {
   stickyNoteColor = color
-  applyStickyNoteColorToDom(color)
+  applyStickyNoteAppearance(stickyNoteColor, stickyNoteOpacity)
   await saveStickyNotePrefs({ opacity: stickyNoteOpacity, color: stickyNoteColor })
 }
 
@@ -7827,187 +7695,75 @@ function createStickyNoteControls() {
   document.body.appendChild(container)
 }
 
+// 便签模式运行时依赖：由 stickyNote.ts 统一驱动模式切换与窗口行为
+const stickyNoteModeDeps: StickyNoteModeDeps = {
+  loadPrefs: () => loadStickyNotePrefs(),
+  getStore: () => store,
+  getMode: () => mode,
+  setMode: (m) => { mode = m },
+  isWysiwygActive: () => !!wysiwyg || !!wysiwygV2Active,
+  disableWysiwyg: () => setWysiwygEnabled(false),
+  renderPreview: () => renderPreview(),
+  showPreviewPanel: (show) => {
+    try {
+      preview.classList.toggle('hidden', !show)
+    } catch {}
+  },
+  syncToggleButton: () => {
+    try { syncToggleButton() } catch {}
+  },
+  openFile: (filePath) => openFile2(filePath),
+  toggleFocusMode: (enable) => toggleFocusMode(enable),
+  showLibrary: (show, focus) => showLibrary(show, focus),
+  createControls: () => createStickyNoteControls(),
+  forceLightTheme: () => {
+    try { document.body.classList.remove('dark-mode') } catch {}
+  },
+  addBodyStickyClass: () => {
+    try { document.body.classList.add('sticky-note-mode') } catch {}
+  },
+  applyAppearance: (color, opacity) => applyStickyNoteAppearance(color, opacity),
+  scheduleAdjustHeight: () => { scheduleAdjustStickyHeight() },
+  getCurrentWindow: () => getCurrentWindow(),
+  currentMonitor: () => currentMonitor(),
+  importDpi: () => import('@tauri-apps/api/dpi'),
+  getScreenSize: () => {
+    try {
+      const screenW = window?.screen?.availWidth || window?.screen?.width
+      const screenH = window?.screen?.availHeight || window?.screen?.height
+      if (!screenW || !screenH) return null
+      return { width: screenW, height: screenH }
+    } catch {
+      return null
+    }
+  },
+  logError: (scope, e) => {
+    console.error('[便签模式] ' + scope + ':', e)
+  },
+}
+
 // 进入便签模式
 async function enterStickyNoteMode(filePath: string) {
   stickyNoteMode = true
-
-  // 强制切换到亮色模式（仅当前便签窗口，不影响其他实例）
   try {
-    document.body.classList.remove('dark-mode')
+    const result: StickyNoteModeResult = await enterStickyNoteModeCore(stickyNoteModeDeps, filePath)
+    stickyNoteOpacity = result.opacity
+    stickyNoteColor = result.color
   } catch (e) {
-    console.error('[便签模式] 切换亮色模式失败:', e)
+    console.error('[便签模式] 进入便签模式失败:', e)
   }
-
-  // 预先加载便签配置（透明度 / 颜色 / 提醒状态），确保首次渲染时状态就绪
-  try {
-    const prefs = await loadStickyNotePrefs()
-    stickyNoteOpacity = prefs.opacity
-    stickyNoteColor = prefs.color
-  } catch (e) {
-    console.error('[便签模式] 预加载配置失败:', e)
-  }
-
-  // 1. 打开文件
-  try {
-    await openFile2(filePath)
-  } catch (e) {
-    console.error('[便签模式] 打开文件失败:', e)
-  }
-
-  // 2. 进入专注模式（不再持久化专注状态，仅当前便签窗口生效）
-  try {
-    await toggleFocusMode(true)
-  } catch (e) {
-    console.error('[便签模式] 进入专注模式失败:', e)
-  }
-
-  // 3. 切换到阅读模式（先记住之前的源码模式状态）
-  try {
-    if (store) {
-      await store.set('editorModeBeforeSticky', {
-        mode: mode,
-        wysiwygV2Active: wysiwygV2Active
-      })
-      await store.save()
-    }
-    // 便签模式下强制关闭所见模式，避免样式冲突和动态对比度失效
-    if (wysiwyg) {
-      try { await setWysiwygEnabled(false) } catch {}
-    }
-    mode = 'preview'
-    try { preview.classList.remove('hidden') } catch {}
-    try { await renderPreview() } catch {}
-    try { syncToggleButton() } catch {}
-  } catch (e) {
-    console.error('[便签模式] 切换阅读模式失败:', e)
-  }
-
-  // 4. 关闭库侧栏
-  try {
-    showLibrary(false, false)
-  } catch (e) {
-    console.error('[便签模式] 关闭库侧栏失败:', e)
-  }
-
-  // 5. 创建便签控制按钮
-  createStickyNoteControls()
-
-  // 6. 添加便签模式标识类
-  document.body.classList.add('sticky-note-mode')
-
-  // 7. 调整窗口大小和位置（移动到右上角，缩小为便签尺寸）
-  try {
-    const win = getCurrentWindow()
-    const { LogicalSize, LogicalPosition } = await import('@tauri-apps/api/dpi')
-
-    // 先保存当前窗口大小和位置，供下次正常启动恢复
-    try {
-      const currentSize = await win.innerSize()
-      const currentPos = await win.outerPosition()
-      if (store && currentSize && currentPos) {
-        await store.set('windowStateBeforeSticky', {
-          width: currentSize.width,
-          height: currentSize.height,
-          x: currentPos.x,
-          y: currentPos.y
-        })
-        await store.save()
-      }
-    } catch {}
-
-    // 便签尺寸：宽 340，高 300
-    const stickyWidth = 340
-    const stickyHeight = 300
-
-    // 默认位置：右上角，右侧和顶部各留 20 像素边距（坐标强制约束在屏幕范围之内）
-    let posX = 20
-    let posY = 20
-
-    // 优先使用 Tauri 提供的当前显示器工作区信息，避免 DPI 缩放导致的位置计算偏差
-    try {
-      const monitor = await currentMonitor()
-      if (monitor && monitor.workArea) {
-        const scale = monitor.scaleFactor || 1
-        const workX = monitor.workArea.position.x / scale
-        const workY = monitor.workArea.position.y / scale
-        const workW = monitor.workArea.size.width / scale
-        const workH = monitor.workArea.size.height / scale
-        // 右上角，右侧和顶部各留 20 像素边距
-        posX = Math.round(workX + workW - stickyWidth - 20)
-        posY = Math.round(workY + 20)
-        // 再次强制约束到工作区范围，确保不会跑出屏幕
-        const minX = workX + 0
-        const maxX = workX + workW - stickyWidth
-        const minY = workY + 0
-        const maxY = workY + workH - stickyHeight
-        posX = Math.min(Math.max(posX, minX), maxX)
-        posY = Math.min(Math.max(posY, minY), maxY)
-      }
-    } catch {
-      // 回退到浏览器 screen 信息：仍然以右上角为目标，并做边界约束
-      try {
-        const screenW = window?.screen?.availWidth || window?.screen?.width || 0
-        const screenH = window?.screen?.availHeight || window?.screen?.height || 0
-        if (screenW && screenH) {
-          posX = Math.round(screenW - stickyWidth - 20)
-          posY = 20
-          const minX = 0
-          const maxX = screenW - stickyWidth
-          const minY = 0
-          const maxY = screenH - stickyHeight
-          posX = Math.min(Math.max(posX, minX), maxX)
-          posY = Math.min(Math.max(posY, minY), maxY)
-        }
-      } catch {}
-    }
-
-    // 设置窗口大小和位置
-    await win.setSize(new LogicalSize(stickyWidth, stickyHeight))
-    await win.setPosition(new LogicalPosition(posX, posY))
-
-    // 便签模式：隐藏任务栏图标
-    try {
-      await win.setSkipTaskbar(true)
-    } catch (e) {
-      console.error('[便签模式] 隐藏任务栏图标失败:', e)
-    }
-  } catch (e) {
-    console.error('[便签模式] 调整窗口大小和位置失败:', e)
-  }
-
-  // 8. 应用透明度和颜色设置（使用已加载配置）
-  try {
-    document.documentElement.style.setProperty('--sticky-opacity', String(stickyNoteOpacity))
-    applyStickyNoteColorToDom(stickyNoteColor)
-  } catch (e) {
-    console.error('[便签模式] 加载透明度失败:', e)
-  }
-
-  // 9. 延迟调整窗口高度以适应内容
-  setTimeout(() => {
-    scheduleAdjustStickyHeight()
-  }, 300)
 }
 
 // ========== 便签模式结束 ==========
 
 // 恢复便签前的窗口大小和位置（供下次正常启动或关闭便签窗口时使用）
 async function restoreWindowStateBeforeSticky(): Promise<void> {
-  try {
-    if (!store) return
-    const saved = await store.get('windowStateBeforeSticky') as { width: number; height: number; x: number; y: number } | null
-    if (!saved || !saved.width || !saved.height) return
-    const win = getCurrentWindow()
-    const { LogicalSize, LogicalPosition } = await import('@tauri-apps/api/dpi')
-    await win.setSize(new LogicalSize(saved.width, saved.height))
-    if (typeof saved.x === 'number' && typeof saved.y === 'number') {
-      await win.setPosition(new LogicalPosition(saved.x, saved.y))
-    }
-    await store.delete('windowStateBeforeSticky')
-    await store.save()
-  } catch (e) {
-    console.warn('[便签模式] 恢复窗口状态失败:', e)
+  const deps: StickyNoteWindowDeps = {
+    getStore: () => store,
+    getCurrentWindow,
+    importDpi: () => import('@tauri-apps/api/dpi'),
   }
+  await restoreWindowStateBeforeStickyCore(deps)
 }
 
 // 退出便签模式时恢复全局状态标志（供关闭后新实例正确启动）
