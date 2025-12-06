@@ -8648,7 +8648,6 @@ const pluginRuntime: PluginRuntimeHandles = initPluginRuntime({
   getEditor: () => editor,
   getPreviewRoot: () => preview,
   getCurrentFilePath: () => currentFilePath,
-  getLibraryRoot: () => getLibraryRoot(),
   isPreviewMode: () => mode === 'preview',
   isWysiwyg: () => !!wysiwyg || !!wysiwygV2Active,
   renderPreview: () => { void renderPreview() },

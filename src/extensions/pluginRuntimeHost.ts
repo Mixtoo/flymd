@@ -43,6 +43,7 @@ export type PluginRuntimeDeps = {
   getEditor: () => HTMLTextAreaElement | null
   getPreviewRoot: () => HTMLDivElement | null
   getCurrentFilePath: () => string | null
+  getLibraryRoot: () => Promise<string | null>
   isPreviewMode: () => boolean
   isWysiwyg: () => boolean
   renderPreview: () => void | Promise<void>
@@ -161,6 +162,7 @@ export function initPluginRuntime(
     getEditor: () => deps.getEditor(),
     getPreviewRoot: () => deps.getPreviewRoot(),
     getCurrentFilePath: () => deps.getCurrentFilePath(),
+    getLibraryRoot: () => deps.getLibraryRoot(),
     isPreviewMode: () => deps.isPreviewMode(),
     isWysiwyg: () => deps.isWysiwyg(),
     renderPreview: () => deps.renderPreview(),
@@ -420,4 +422,3 @@ export function initPluginRuntime(
     loadAndActivateEnabledPlugins,
   }
 }
-

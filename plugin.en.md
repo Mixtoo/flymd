@@ -733,6 +733,24 @@ if (!path) {
 - Returns OS-level absolute paths (e.g. `C:/docs/note.md` or `/home/user/note.md`);
 - For “new, unsaved” documents this will be `null`.
 
+### context.getLibraryRoot
+
+Get the absolute path of the currently active library root directory. Returns `null` if no library is open.
+
+```javascript
+const root = await context.getLibraryRoot();
+
+if (!root) {
+  context.ui.notice('No library is currently open', 'err');
+} else {
+  context.ui.notice('Current library root: ' + root, 'ok');
+}
+```
+
+**Typical usage:**
+- Combine with `context.getCurrentFilePath` to calculate “current file’s folder”;
+- Build library-relative paths when exporting or generating helper documents.
+
 ### context.readFileBinary
 
 Read local file as binary content by absolute path and return a `Uint8Array`. Useful for PDF parsing, image processing and other binary workflows.
@@ -753,6 +771,40 @@ context.ui.notice('Read bytes: ' + bytes.length, 'ok');
 - Only available in desktop version (Tauri app), relies on underlying filesystem permissions;
 - Argument must be an absolute path; passing an empty or invalid path will throw an error;
 - Return value is always a `Uint8Array`, convenient for passing to `FormData`, `fetch` and similar APIs.
+
+### context.saveMarkdownToCurrentFolder
+
+Save a piece of Markdown content directly as a file in the library, by default using the folder of the “current document” in the sidebar. If there is no current document, it falls back to the library root. This is useful for automatically generating `.md` files after parsing/translating PDFs.
+
+```javascript
+const fileName = 'example.pdf.md';
+const content = '# Markdown parsed from PDF...';
+
+try {
+  const savedPath = await context.saveMarkdownToCurrentFolder({
+    fileName,
+    content,
+    onConflict: 'renameAuto', // 'overwrite' | 'renameAuto' | 'error'
+  });
+
+  context.ui.notice('Saved to: ' + savedPath, 'ok');
+} catch (e) {
+  context.ui.notice('Save failed: ' + (e?.message || String(e)), 'err');
+}
+```
+
+**Parameters:**
+- `fileName`: target file name (no path), e.g. `document.pdf.md` or `document.translated.md`;
+- `content`: Markdown text to write;
+- `onConflict` (optional): how to handle name conflicts:
+  - `'overwrite'`: overwrite existing file;
+  - `'renameAuto'` (default): automatically append `-1`, `-2`, etc. to avoid conflicts;
+  - `'error'`: throw if the file already exists.
+
+**Behavior:**
+- Prefers the folder of the currently open document as target directory;
+- If there is no current file or it is outside the active library, falls back to the library root;
+- The implementation ensures the final path stays inside the current library.
 
 ### context.openFileByPath
 

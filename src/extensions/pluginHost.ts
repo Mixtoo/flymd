@@ -8,6 +8,7 @@ import {
   remove,
   writeFile,
   BaseDirectory,
+  exists,
 } from '@tauri-apps/plugin-fs'
 import { save, open } from '@tauri-apps/plugin-dialog'
 import type { Store } from '@tauri-apps/plugin-store'
@@ -71,6 +72,7 @@ export type PluginHostDeps = {
   getEditor: () => HTMLTextAreaElement | null
   getPreviewRoot: () => HTMLDivElement | null
   getCurrentFilePath: () => string | null
+  getLibraryRoot: () => Promise<string | null>
   isPreviewMode: () => boolean
   isWysiwyg: () => boolean
   renderPreview: () => void | Promise<void>
@@ -527,6 +529,7 @@ export function createPluginHost(
         },
       },
       getCurrentFilePath: () => deps.getCurrentFilePath(),
+      getLibraryRoot: () => deps.getLibraryRoot(),
       getEditorValue: () => getSourceTextForPlugin(),
       setEditorValue: (v: string) => {
         try {
@@ -632,6 +635,79 @@ export function createPluginHost(
           await deps.exportCurrentDocToPdf(target)
         } catch (e) {
           console.error('plugin exportCurrentToPdf 失败', e)
+          throw e
+        }
+      },
+      saveMarkdownToCurrentFolder: async (opt: {
+        fileName: string
+        content: string
+        onConflict?: 'overwrite' | 'renameAuto' | 'error'
+      }) => {
+        try {
+          if (!opt || !opt.fileName) {
+            throw new Error('fileName 不能为空')
+          }
+          const root = await deps.getLibraryRoot()
+          if (!root) {
+            throw new Error('当前未打开任何库')
+          }
+          const rootNorm = String(root).replace(/[\\/]+$/, '')
+          const current = deps.getCurrentFilePath()
+
+          // 优先使用当前文件所在目录；否则退回库根目录
+          let baseDir = rootNorm
+          if (current && current.startsWith(rootNorm)) {
+            baseDir = current.replace(/[\\/][^\\/]*$/, '')
+          }
+
+          const sep = baseDir.includes('\\') ? '\\' : '/'
+          const safeName =
+            String(opt.fileName)
+              .trim()
+              .replace(/[\\/:*?"<>|]+/g, '_') || 'document.md'
+
+          const makeFull = (name: string) =>
+            baseDir + sep + name
+
+          const onConflict = opt.onConflict || 'renameAuto'
+          let finalName = safeName
+          let fullPath = makeFull(finalName)
+
+          if (onConflict === 'error') {
+            if (await exists(fullPath as any)) {
+              throw new Error('目标文件已存在：' + fullPath)
+            }
+          } else if (onConflict === 'renameAuto') {
+            if (await exists(fullPath as any)) {
+              const dot = safeName.lastIndexOf('.')
+              const base =
+                dot > 0 ? safeName.slice(0, dot) : safeName
+              const ext = dot > 0 ? safeName.slice(dot) : ''
+              let idx = 1
+              while (idx < 10000) {
+                const candidate = `${base}-${idx}${ext}`
+                const candidateFull = makeFull(candidate)
+                // eslint-disable-next-line no-await-in-loop
+                if (!(await exists(candidateFull as any))) {
+                  finalName = candidate
+                  fullPath = candidateFull
+                  break
+                }
+                idx += 1
+              }
+            }
+          }
+          // onConflict === 'overwrite' 时不做额外处理，直接写入覆盖
+
+          const encoder = new TextEncoder()
+          const data = encoder.encode(String(opt.content || ''))
+          await writeFile(fullPath as any, data as any)
+          return fullPath
+        } catch (e) {
+          console.error(
+            `[Plugin ${p.id}] saveMarkdownToCurrentFolder 失败:`,
+            e,
+          )
           throw e
         }
       },

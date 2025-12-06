@@ -238,6 +238,118 @@ async function parseImageBytes(context, cfg, bytes, filename) {
   return await uploadAndParseImageFile(context, cfg, file)
 }
 
+// 将长文分批翻译，避免单次调用超出模型上下文
+// 返回 { completed, text, partial, translatedBatches, totalBatches, translatedPages }
+// 若中途失败，尽量返回已翻译内容（partial）而不是直接抛错
+async function translateMarkdownInBatches(ai, markdown, pages, onProgress) {
+  if (!ai || typeof ai.translate !== 'function') return null
+  const totalPagesRaw =
+    typeof pages === 'number'
+      ? pages
+      : parseInt(pages || '', 10)
+  const totalPages = Number.isFinite(totalPagesRaw) && totalPagesRaw > 0 ? totalPagesRaw : 0
+
+  // 页数未知或不超过 2 页，直接一次性翻译，保持原有行为
+  if (!totalPages || totalPages <= 2) {
+    try {
+      const single = await ai.translate(markdown)
+      if (!single) {
+        return {
+          completed: false,
+          text: '',
+          partial: '',
+          translatedBatches: 0,
+          totalBatches: 1,
+          translatedPages: 0
+        }
+      }
+      return {
+        completed: true,
+        text: single,
+        partial: single,
+        translatedBatches: 1,
+        totalBatches: 1,
+        translatedPages: totalPages || 0
+      }
+    } catch (e) {
+      return {
+        completed: false,
+        text: '',
+        partial: '',
+        translatedBatches: 0,
+        totalBatches: 1,
+        translatedPages: 0
+      }
+    }
+  }
+
+  // 粗略按页数估算每页字符数，再按 2 页一批拆分
+  const perPageChars = Math.max(
+    800,
+    Math.floor(markdown.length / Math.max(totalPages, 1))
+  )
+  const batchChars = perPageChars * 2
+
+  const chunks = []
+  for (let i = 0; i < markdown.length; i += batchChars) {
+    chunks.push(markdown.slice(i, i + batchChars))
+  }
+
+  const translatedChunks = []
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i]
+    const fromPage = i * 2 + 1
+    const toPage = Math.min((i + 1) * 2, totalPages)
+
+    // 通知调用方当前批次，便于更新 UI 为“正在翻译第 X-Y 页”
+    if (typeof onProgress === 'function') {
+      try {
+        onProgress({
+          batchIndex: i,
+          batchCount: chunks.length,
+          fromPage,
+          toPage
+        })
+      } catch {}
+    }
+
+    // 在每批前加一小段提示，帮助模型保持上下文
+    const prefix =
+      chunks.length > 1
+        ? `【PDF 文档分批翻译，第 ${i + 1}/${chunks.length} 批，约第 ${fromPage}-${toPage} 页】\n\n`
+        : ''
+
+    let result = ''
+    try {
+      result = await ai.translate(prefix + chunk)
+    } catch (e) {
+      // 中途出错，跳出循环，返回已完成部分
+      break
+    }
+
+    if (!result) {
+      // 返回空也视为失败，保留已翻译内容
+      break
+    }
+    translatedChunks.push(result)
+  }
+
+  const joined = translatedChunks.join('\n\n')
+  const completed = translatedChunks.length === chunks.length && chunks.length > 0
+  const translatedPages = translatedChunks.length * 2 > totalPages
+    ? totalPages
+    : translatedChunks.length * 2
+
+  return {
+    completed,
+    text: joined,
+    partial: joined,
+    translatedBatches: translatedChunks.length,
+    totalBatches: chunks.length,
+    translatedPages
+  }
+}
+
 
 
 function showDocxDownloadDialog(docxUrl, pages) {
@@ -376,6 +488,233 @@ function showDocxDownloadDialog(docxUrl, pages) {
 
   
   document.body.appendChild(overlay)
+}
+
+
+// PDF 翻译前确认对话框，提示模型配置与自动保存行为（不再支持按页选择）
+// 返回 { confirmed: boolean }
+async function showTranslateConfirmDialog(context, cfg, fileName, pages) {
+  if (typeof document === 'undefined') {
+    // 无法渲染对话框时直接放行，保持功能可用
+    return { confirmed: true }
+  }
+
+  const totalPagesRaw =
+    typeof pages === 'number'
+      ? pages
+      : parseInt(pages || '', 10)
+  const totalPages =
+    Number.isFinite(totalPagesRaw) && totalPagesRaw > 0
+      ? totalPagesRaw
+      : 0
+
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div')
+    overlay.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:90025;'
+
+    const dialog = document.createElement('div')
+    dialog.style.cssText =
+      'width:520px;max-width:calc(100% - 40px);background:var(--bg,#fff);color:var(--fg,#111827);border-radius:12px;border:1px solid var(--border,#e5e7eb);box-shadow:0 20px 50px rgba(0,0,0,.35);overflow:hidden;font-size:14px;'
+
+    const header = document.createElement('div')
+    header.style.cssText =
+      'padding:14px 18px;border-bottom:1px solid var(--border,#e5e7eb);font-weight:600;font-size:15px;background:linear-gradient(135deg,#0ea5e9 0%,#6366f1 100%);color:#fff;'
+    header.textContent = '确认翻译 PDF'
+
+    const body = document.createElement('div')
+    body.style.cssText = 'padding:18px 18px 6px 18px;line-height:1.7;'
+
+    const nameRow = document.createElement('div')
+    nameRow.style.marginBottom = '8px'
+    nameRow.innerHTML =
+      '将翻译文档：<strong>' +
+      (fileName || '未命名 PDF') +
+      '</strong>'
+
+    const descRow = document.createElement('div')
+    descRow.style.marginBottom = '8px'
+    descRow.textContent =
+      '翻译将通过 AI 助手插件执行，默认使用当前配置的模型。如必须使用免费模型，建议在解析完成后通过 AI 助手窗口手动翻译，以提高成功率。'
+
+    const modelRow = document.createElement('div')
+    modelRow.style.marginBottom = '8px'
+    modelRow.style.fontSize = '13px'
+    modelRow.style.color = 'var(--muted,#4b5563)'
+    modelRow.textContent = '当前模型：正在获取...'
+
+    const saveRow = document.createElement('div')
+    saveRow.style.marginBottom = '8px'
+    saveRow.style.fontSize = '13px'
+    saveRow.style.color = 'var(--muted,#4b5563)'
+    const baseNameRaw = (fileName || 'document.pdf').replace(/\.pdf$/i, '')
+    const originFileName = baseNameRaw + ' (PDF 原文).md'
+    const transFileName = baseNameRaw + ' (PDF 翻译).md'
+    saveRow.textContent =
+      '解析成功后，将在当前文件所在目录自动保存 Markdown 文件：' +
+      originFileName +
+      ' 和 ' +
+      transFileName +
+      '。'
+
+    const batchRow = document.createElement('div')
+    batchRow.style.marginBottom = '8px'
+    batchRow.innerHTML =
+      '当前 PDF 文档超过 2 页，将按 <strong>2 页一批</strong>依次翻译。请确认所选模型的上下文长度和速率限制是否足够。'
+
+    const quotaRow = document.createElement('div')
+    quotaRow.style.cssText =
+      'margin-top:4px;margin-bottom:4px;font-size:13px;color:var(--muted,#4b5563);'
+    const quotaLabel = document.createElement('span')
+    quotaLabel.textContent = '当前剩余可用解析页数：'
+    const quotaValue = document.createElement('span')
+    quotaValue.textContent = '正在查询...'
+    quotaRow.appendChild(quotaLabel)
+    quotaRow.appendChild(quotaValue)
+
+    const footer = document.createElement('div')
+    footer.style.cssText =
+      'padding:12px 18px;border-top:1px solid var(--border,#e5e7eb);display:flex;justify-content:flex-end;gap:10px;background:var(--bg-muted,#f9fafb);'
+
+    const btnCancel = document.createElement('button')
+    btnCancel.textContent = '取消'
+    btnCancel.style.cssText =
+      'padding:6px 16px;border-radius:6px;border:1px solid var(--border,#d1d5db);background:var(--bg,#fff);color:var(--muted,#4b5563);cursor:pointer;font-size:13px;'
+
+    const btnOk = document.createElement('button')
+    btnOk.textContent = '确认'
+    btnOk.style.cssText =
+      'padding:6px 18px;border-radius:6px;border:1px solid #2563eb;background:#2563eb;color:#fff;cursor:pointer;font-size:13px;font-weight:500;'
+
+    btnCancel.onclick = () => {
+      try {
+        document.body.removeChild(overlay)
+      } catch {}
+      resolve({ confirmed: false })
+    }
+
+    btnOk.onclick = () => {
+      try {
+        document.body.removeChild(overlay)
+      } catch {}
+      resolve({
+        confirmed: true
+      })
+    }
+
+    overlay.onclick = (e) => {
+      if (e.target === overlay) {
+        try {
+          document.body.removeChild(overlay)
+        } catch {}
+        resolve({ confirmed: false })
+      }
+    }
+
+    body.appendChild(nameRow)
+    body.appendChild(descRow)
+    body.appendChild(modelRow)
+    body.appendChild(saveRow)
+    body.appendChild(batchRow)
+    body.appendChild(quotaRow)
+
+    footer.appendChild(btnCancel)
+    footer.appendChild(btnOk)
+
+    dialog.appendChild(header)
+    dialog.appendChild(body)
+    dialog.appendChild(footer)
+
+    overlay.appendChild(dialog)
+    document.body.appendChild(overlay)
+
+    // 查询当前剩余页数，失败时仅更新文案，不中断流程
+    ;(async () => {
+      let apiUrl = (cfg.apiBaseUrl || DEFAULT_API_BASE).trim()
+      if (apiUrl.endsWith('/pdf')) {
+        apiUrl += '/'
+      }
+      try {
+        const res = await context.http.fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            Authorization: 'Bearer ' + (cfg.apiToken || '')
+          }
+        })
+
+        const text = await res.text()
+        let data = null
+        try {
+          data = text ? JSON.parse(text) : null
+        } catch {
+          quotaValue.textContent = '查询失败（响应格式错误）'
+          return
+        }
+
+        if (res.status < 200 || res.status >= 300 || !data || data.ok !== true) {
+          const msg =
+            (data && (data.message || data.error)) ||
+            text ||
+            '请求失败（HTTP ' + res.status + '）'
+          quotaValue.textContent = '查询失败：' + msg
+          return
+        }
+
+        const total = data.total_pages ?? 0
+        const used = data.used_pages ?? 0
+        const remain = data.remain_pages ?? Math.max(0, total - used)
+        quotaValue.textContent =
+          String(remain) + ' 页（总 ' + total + ' 页，已用 ' + used + ' 页）'
+      } catch (e) {
+        const msg = e && e.message ? e.message : String(e || '未知错误')
+        quotaValue.textContent = '查询失败：' + msg
+      }
+    })()
+
+    // 查询 AI 助手当前模型配置，告知用户当前模型/是否免费模型
+    ;(async () => {
+      try {
+        const ai =
+          typeof context.getPluginAPI === 'function'
+            ? context.getPluginAPI('ai-assistant')
+            : null
+        if (!ai || typeof ai.getConfig !== 'function') {
+          modelRow.textContent = '当前模型：未知（AI 助手插件未安装或版本过低）'
+          return
+        }
+        const aiCfg = await ai.getConfig()
+        if (!aiCfg || typeof aiCfg !== 'object') {
+          modelRow.textContent = '当前模型：获取失败'
+          return
+        }
+
+        const provider = aiCfg.provider || 'openai'
+        const isFreeProvider = provider === 'free'
+        const modelId = (aiCfg.model && String(aiCfg.model).trim()) || ''
+        const freeKey = (aiCfg.freeModel && String(aiCfg.freeModel).trim()) || ''
+        const alwaysFreeTrans = !!aiCfg.alwaysUseFreeTrans
+
+        let detail = ''
+        if (alwaysFreeTrans) {
+          detail =
+            '启用“翻译始终使用免费模型”，本次将使用免费模型' +
+            (freeKey ? `（${freeKey}）` : '')
+        } else if (isFreeProvider) {
+          detail =
+            '当前处于免费模式，将使用免费模型' +
+            (freeKey ? `（${freeKey}）` : '')
+        } else {
+          detail =
+            '当前使用自定义模型' +
+            (modelId ? `（${modelId}）` : '')
+        }
+
+        modelRow.textContent = '当前模型：' + detail
+      } catch (e) {
+        modelRow.textContent = '当前模型：获取失败'
+      }
+    })()
+  })
 }
 
 
@@ -1012,10 +1351,11 @@ export async function activate(context) {
           }
         }
       },
-      {
+        {
         label: '翻译 PDF',
         onClick: async () => {
           let loadingId = null
+          const loadingRef = { id: null }
           try {
             const ai =
               typeof context.getPluginAPI === 'function'
@@ -1056,6 +1396,15 @@ export async function activate(context) {
             let markdown = ''
             let pages = '?'
             let fileName = ''
+            let originSavedPath = ''
+            let transSavedPath = ''
+
+            const currentPath =
+              typeof context.getCurrentFilePath === 'function'
+                ? context.getCurrentFilePath()
+                : null
+            const isCurrentPdf =
+              !!currentPath && /\.pdf$/i.test(String(currentPath || ''))
 
             const canUseCurrent =
               typeof context.getCurrentFilePath === 'function' &&
@@ -1064,6 +1413,20 @@ export async function activate(context) {
             if (canUseCurrent) {
               const path = context.getCurrentFilePath()
               if (path && /\.pdf$/i.test(path)) {
+                fileName =
+                  path.split(/[\\/]+/).pop() || 'document.pdf'
+
+                // 解析前弹出确认窗口，用户确定是否翻译以及可选页范围
+                const preConfirm = await showTranslateConfirmDialog(
+                  context,
+                  cfg,
+                  fileName,
+                  undefined
+                )
+                if (!preConfirm || !preConfirm.confirmed) {
+                  context.ui.notice('已取消 PDF 翻译', 'info', 3000)
+                  return
+                }
                 if (context.ui.showNotification) {
                   loadingId = context.ui.showNotification(
                     '正在解析当前 PDF...',
@@ -1081,8 +1444,6 @@ export async function activate(context) {
                 }
 
                 const bytes = await context.readFileBinary(path)
-                fileName =
-                  path.split(/[\\/]+/).pop() || 'document.pdf'
                 const result = await parsePdfBytes(
                   context,
                   cfg,
@@ -1102,6 +1463,18 @@ export async function activate(context) {
             if (!markdown) {
               const file = await pickPdfFile()
               fileName = file && file.name
+
+              // 解析前弹出确认窗口，用户确定是否翻译以及可选页范围
+              const preConfirm = await showTranslateConfirmDialog(
+                context,
+                cfg,
+                fileName || '',
+                undefined
+              )
+              if (!preConfirm || !preConfirm.confirmed) {
+                context.ui.notice('已取消 PDF 翻译', 'info', 3000)
+                return
+              }
 
               if (context.ui.showNotification) {
                 if (loadingId && context.ui.hideNotification) {
@@ -1153,6 +1526,41 @@ export async function activate(context) {
               return
             }
 
+            // 根据解析结果计算总页数（用于内部按 2 页一批拆分）
+            const numericPages =
+              typeof pages === 'number'
+                ? pages
+                : parseInt(pages || '', 10) || 0
+
+            // 先将解析出的 PDF 原文保存为独立 Markdown 文件（不覆盖源文件），再在当前文档中插入一份，方便用户保存与查阅
+            try {
+              const baseNameRaw = (fileName || 'document.pdf').replace(/\.pdf$/i, '')
+              const originFileName = baseNameRaw + ' (PDF 原文).md'
+              if (typeof context.saveMarkdownToCurrentFolder === 'function') {
+                try {
+                  originSavedPath = await context.saveMarkdownToCurrentFolder({
+                    fileName: originFileName,
+                    content: markdown,
+                    onConflict: 'renameAuto'
+                  })
+                } catch {}
+              }
+
+              // 仅在当前编辑的不是 PDF 文件时，才把原文插入当前文档，避免误改 PDF 源文件
+              if (!isCurrentPdf) {
+                const currentBefore = context.getEditorValue()
+                const originTitle = fileName
+                  ? '## PDF 原文：' + fileName
+                  : '## PDF 原文'
+                const originBlock =
+                  '\n\n---\n\n' + originTitle + '\n\n' + markdown + '\n'
+                const mergedOrigin = currentBefore
+                  ? currentBefore + originBlock
+                  : originBlock
+                context.setEditorValue(mergedOrigin)
+              }
+            } catch {}
+
             if (context.ui.showNotification) {
               if (loadingId && context.ui.hideNotification) {
                 try {
@@ -1160,23 +1568,47 @@ export async function activate(context) {
                 } catch {}
                 loadingId = null
               }
-              loadingId = context.ui.showNotification(
-                '正在翻译 PDF 内容...',
-                {
-                  type: 'info',
-                  duration: 0
-                }
-              )
             } else {
               context.ui.notice('正在翻译 PDF 内容...', 'ok', 3000)
             }
 
-            const translation =
-              typeof ai.translate === 'function'
-                ? await ai.translate(markdown)
-                : null
+            const result = await translateMarkdownInBatches(
+              ai,
+              markdown,
+              numericPages,
+              (info) => {
+                const from = info && typeof info.fromPage === 'number' ? info.fromPage : 0
+                const to = info && typeof info.toPage === 'number' ? info.toPage : 0
+                const batchIndex =
+                  info && typeof info.batchIndex === 'number' ? info.batchIndex : 0
+                const batchCount =
+                  info && typeof info.batchCount === 'number' ? info.batchCount : 0
 
-            if (!translation) {
+                const msgPages =
+                  from && to
+                    ? `正在翻译 PDF 第 ${from}-${to} 页（第 ${batchIndex + 1}/${batchCount} 批）...`
+                    : `正在翻译 PDF 内容（第 ${batchIndex + 1}/${batchCount} 批）...`
+
+                if (context.ui.showNotification) {
+                  if (loadingRef.id && context.ui.hideNotification) {
+                    try {
+                      context.ui.hideNotification(loadingRef.id)
+                    } catch {}
+                    loadingRef.id = null
+                  }
+                  try {
+                    loadingRef.id = context.ui.showNotification(msgPages, {
+                      type: 'info',
+                      duration: 0
+                    })
+                  } catch {}
+                } else {
+                  context.ui.notice(msgPages, 'ok', 2000)
+                }
+              }
+            )
+
+            if (!result || !result.partial) {
               if (loadingId && context.ui.hideNotification) {
                 try {
                   context.ui.hideNotification(loadingId)
@@ -1190,27 +1622,79 @@ export async function activate(context) {
               return
             }
 
+            const translation = result.text || result.partial
+
             if (loadingId && context.ui.hideNotification) {
               try {
                 context.ui.hideNotification(loadingId)
               } catch {}
             }
+            if (loadingRef.id && context.ui.hideNotification) {
+              try {
+                context.ui.hideNotification(loadingRef.id)
+              } catch {}
+            }
 
-            const current = context.getEditorValue()
-            const title = fileName
-              ? '## PDF 翻译：' + fileName
-              : '## PDF 中文翻译'
-            const block =
-              '\n\n---\n\n' + title + '\n\n' + translation + '\n'
-            const merged = current ? current + block : block
-            context.setEditorValue(merged)
+            // 将翻译结果同时保存为单独 Markdown 文件，默认放在当前文件所在目录
+            try {
+              const baseNameRaw = (fileName || 'document.pdf').replace(/\.pdf$/i, '')
+              const transFileName = baseNameRaw + ' (PDF 翻译).md'
+              if (typeof context.saveMarkdownToCurrentFolder === 'function') {
+                try {
+                  transSavedPath = await context.saveMarkdownToCurrentFolder({
+                    fileName: transFileName,
+                    content: translation,
+                    onConflict: 'renameAuto'
+                  })
+                } catch {}
+              }
+            } catch {}
 
-            context.ui.notice(
-              'PDF 翻译完成' +
-                (pages ? '（' + pages + ' 页）' : ''),
-              'ok',
-              5000
-            )
+            // 当前不是 PDF 文件时，在文档末尾插入翻译结果；
+            // 若当前是 PDF，则避免修改该文件内容，改为通过打开翻译文件查看。
+            if (!isCurrentPdf) {
+              const current = context.getEditorValue()
+              const title = fileName
+                ? '## PDF 翻译：' + fileName
+                : '## PDF 中文翻译'
+              const block =
+                '\n\n---\n\n' + title + '\n\n' + translation + '\n'
+              const merged = current ? current + block : block
+              context.setEditorValue(merged)
+            }
+
+            if (result.completed) {
+              context.ui.notice(
+                'PDF 翻译完成' +
+                  (pages ? '（' + pages + ' 页）' : ''),
+                'ok',
+                5000
+              )
+            } else {
+              const donePages =
+                typeof result.translatedPages === 'number'
+                  ? result.translatedPages
+                  : ''
+              const suffix = donePages
+                ? `，已插入前 ${donePages} 页的翻译`
+                : '，已插入部分翻译结果'
+              context.ui.notice(
+                'PDF 翻译过程中断' + suffix,
+                'err',
+                6000
+              )
+            }
+
+            // 如果当前是 PDF 文件，则翻译完成后自动打开翻译后的 Markdown 文件，避免用户误改 PDF 源文件
+            if (
+              isCurrentPdf &&
+              transSavedPath &&
+              typeof context.openFileByPath === 'function'
+            ) {
+              try {
+                await context.openFileByPath(transSavedPath)
+              } catch {}
+            }
           } catch (err) {
             if (loadingId && context.ui.hideNotification) {
               try {

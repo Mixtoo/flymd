@@ -1058,6 +1058,28 @@ if (!path) {
 - 返回的是操作系统级绝对路径（如 `C:/docs/note.md` 或 `/home/user/note.md`）；
 - 对于“新建但未保存”的文档会返回 `null`。
 
+### context.getLibraryRoot
+
+获取当前激活库（Library）的根目录绝对路径。如果当前未打开任何库，则返回 `null`。
+
+```javascript
+const root = await context.getLibraryRoot();
+
+if (!root) {
+  context.ui.notice('当前未打开任何库', 'err');
+} else {
+  context.ui.notice('当前库根目录：' + root, 'ok');
+}
+```
+
+**典型用法：**
+- 与 `context.getCurrentFilePath` 结合，推断“当前文件所在文件夹”；
+- 构造库内的相对路径，用于导出/生成辅助文档。
+
+**注意：**
+- 返回的是操作系统级绝对路径；
+- 可能与当前编辑器打开的“临时文档”所在位置不同。
+
 ### context.readFileBinary
 
 按绝对路径读取本地文件的二进制内容，返回 `Uint8Array`。适合用于 PDF 解析、图片处理等场景。
@@ -1078,6 +1100,40 @@ context.ui.notice('已读取字节数：' + bytes.length, 'ok');
 - 仅在桌面版（Tauri 应用）可用，依赖底层文件系统权限；
 - 参数必须是绝对路径，传入空字符串或非法路径会抛出错误；
 - 返回值始终为 `Uint8Array`，方便直接传给 `FormData`、`fetch` 等接口。
+
+### context.saveMarkdownToCurrentFolder
+
+将一段 Markdown 内容直接保存为文件，默认写入“当前侧栏文件所在的文件夹”；如果当前没有打开任何文件，则写入当前库根目录。适合解析/翻译 PDF 后自动在库中生成对应的 `.md` 文件。
+
+```javascript
+const fileName = 'example.pdf.md';
+const content = '# 从 PDF 解析出来的内容...';
+
+try {
+  const savedPath = await context.saveMarkdownToCurrentFolder({
+    fileName,
+    content,
+    onConflict: 'renameAuto', // 'overwrite' | 'renameAuto' | 'error'
+  });
+
+  context.ui.notice('已保存到：' + savedPath, 'ok');
+} catch (e) {
+  context.ui.notice('保存失败：' + (e?.message || String(e)), 'err');
+}
+```
+
+**参数说明：**
+- `fileName`：目标文件名（不含路径），如 `document.pdf.md` 或 `document.翻译.md`；
+- `content`：要写入的 Markdown 文本内容；
+- `onConflict`（可选）：文件已存在时的处理策略：
+  - `'overwrite'`：直接覆盖原文件；
+  - `'renameAuto'`（默认）：自动在文件名后追加 `-1`、`-2` 等避免冲突；
+  - `'error'`：如果文件已存在则抛出错误。
+
+**行为细节：**
+- 优先选择“当前编辑器打开文件”的所在文件夹作为保存目录；
+- 如果当前没有打开文件或路径不在当前库中，则退回到库根目录；
+- 始终保证目标路径在当前库内，不会写出库目录之外。
 
 ### context.openFileByPath
 
