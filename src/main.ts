@@ -123,7 +123,7 @@ import { initPluginsMenu, addToPluginsMenu, removeFromPluginsMenu, togglePluginD
 import { openLinkDialog, openRenameDialog } from './ui/linkDialogs'
 import { initExtensionsPanel, refreshExtensionsUI as panelRefreshExtensionsUI, showExtensionsOverlay as panelShowExtensionsOverlay } from './extensions/extensionsPanel'
 import { initAboutOverlay, showAbout } from './ui/aboutOverlay'
-import { showUpdateOverlayLinux, showUpdateDownloadedOverlay, showInstallFailedOverlay, loadUpdateExtra, renderUpdateDetailsHTML } from './ui/updateOverlay'
+import { ensureUpdateOverlay, showUpdateOverlayLinux, showUpdateDownloadedOverlay, showInstallFailedOverlay, loadUpdateExtra, renderUpdateDetailsHTML } from './ui/updateOverlay'
 import { openInBrowser, upMsg } from './core/updateUtils'
 import { initLibraryContextMenu } from './ui/libraryContextMenu'
 import {
