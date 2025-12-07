@@ -324,16 +324,22 @@ fn main() {
       http_xmlrpc_post,
       check_update,
       download_file,
+      git_status_summary,
+      git_file_history,
+      git_file_diff,
+      git_init_repo,
+      git_commit_snapshot,
+      git_restore_file_version,
       run_installer,
       // Android SAF 命令
       android_pick_document,
       android_create_document,
       android_read_uri,
       android_write_uri,
-       android_persist_uri_permission,
-       get_cli_args,
-       get_platform,
-       open_as_sticky_note
+      android_persist_uri_permission,
+      get_cli_args,
+      get_platform,
+      open_as_sticky_note
     ])
     .setup(|app| {
       // Windows "打开方式/默认程序" 传入的文件参数处理
@@ -706,6 +712,363 @@ async fn download_file(url: String, use_proxy: Option<bool>) -> Result<String, S
     if let Err(e) = do_fetch(&client, &proxy.0, &proxy.1).await { last_err = Some(e); } else { return Ok(proxy.1.to_string_lossy().to_string()); }
   }
   Err(last_err.unwrap_or_else(|| "download failed".into()))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitStatusSummary {
+  is_repo: bool,
+  repo_root: Option<String>,
+  branch: Option<String>,
+  head: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitCommitEntry {
+  hash: String,
+  summary: String,
+  author: String,
+  author_email: Option<String>,
+  date: String,
+}
+
+#[tauri::command]
+async fn git_status_summary(repo_path: String) -> Result<GitStatusSummary, String> {
+  let res = tauri::async_runtime::spawn_blocking(move || {
+    use std::path::Path;
+    use std::process::Command;
+
+    let path = Path::new(&repo_path);
+    if !path.exists() {
+      return Ok::<GitStatusSummary, String>(GitStatusSummary {
+        is_repo: false,
+        repo_root: None,
+        branch: None,
+        head: None,
+      });
+    }
+
+    let output = Command::new("git")
+      .args(["rev-parse", "--show-toplevel"])
+      .current_dir(path)
+      .output()
+      .map_err(|e| format!("git rev-parse error: {e}"))?;
+
+    if !output.status.success() {
+      return Ok(GitStatusSummary {
+        is_repo: false,
+        repo_root: None,
+        branch: None,
+        head: None,
+      });
+    }
+
+    let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if root.is_empty() {
+      return Ok(GitStatusSummary {
+        is_repo: false,
+        repo_root: None,
+        branch: None,
+        head: None,
+      });
+    }
+
+    let mut branch: Option<String> = None;
+    let mut head: Option<String> = None;
+
+    let out_branch = Command::new("git")
+      .args(["rev-parse", "--abbrev-ref", "HEAD"])
+      .current_dir(&root)
+      .output()
+      .map_err(|e| format!("git rev-parse --abbrev-ref error: {e}"))?;
+    if out_branch.status.success() {
+      let s = String::from_utf8_lossy(&out_branch.stdout).trim().to_string();
+      if !s.is_empty() {
+        branch = Some(s);
+      }
+    }
+
+    let out_head = Command::new("git")
+      .args(["rev-parse", "HEAD"])
+      .current_dir(&root)
+      .output()
+      .map_err(|e| format!("git rev-parse HEAD error: {e}"))?;
+    if out_head.status.success() {
+      let s = String::from_utf8_lossy(&out_head.stdout).trim().to_string();
+      if !s.is_empty() {
+        head = Some(s);
+      }
+    }
+
+    Ok(GitStatusSummary {
+      is_repo: true,
+      repo_root: Some(root),
+      branch,
+      head,
+    })
+  })
+  .await
+  .map_err(|e| format!("join error: {e}"))?;
+
+  res
+}
+
+#[tauri::command]
+async fn git_restore_file_version(
+  repo_path: String,
+  file_path: String,
+  commit: String,
+) -> Result<(), String> {
+  let res = tauri::async_runtime::spawn_blocking(move || {
+    use std::fs;
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let root = PathBuf::from(&repo_path);
+    if !root.exists() {
+      return Err("路径不存在".into());
+    }
+
+    let file = PathBuf::from(&file_path);
+    if !file.exists() {
+      return Err("目标文件不存在".into());
+    }
+
+    let rel = file.strip_prefix(&root).unwrap_or(&file);
+    let rel_str = rel.to_string_lossy().replace('\\', "/");
+
+    let output = Command::new("git")
+      .arg("show")
+      .arg(format!("{commit}:{rel_str}"))
+      .current_dir(&root)
+      .output()
+      .map_err(|e| format!("git show error: {e}"))?;
+    if !output.status.success() {
+      let msg = String::from_utf8_lossy(&output.stderr).to_string();
+      return Err(if msg.is_empty() { "git show failed".into() } else { msg });
+    }
+
+    fs::write(&file, &output.stdout).map_err(|e| format!("写入文件失败: {e}"))?;
+    Ok(())
+  })
+  .await
+  .map_err(|e| format!("join error: {e}"))?;
+
+  res
+}
+
+#[tauri::command]
+async fn git_file_history(
+  repo_path: String,
+  file_path: String,
+  max_count: Option<u32>,
+) -> Result<Vec<GitCommitEntry>, String> {
+  let res = tauri::async_runtime::spawn_blocking(move || {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let root = PathBuf::from(&repo_path);
+    if !root.exists() {
+      return Ok::<Vec<GitCommitEntry>, String>(Vec::new());
+    }
+    let file = PathBuf::from(&file_path);
+    let rel = file.strip_prefix(&root).unwrap_or(&file);
+
+    let max = max_count.unwrap_or(50).max(1);
+
+    let mut cmd = Command::new("git");
+    cmd.arg("log");
+    cmd.arg(format!("--max-count={}", max));
+    cmd.args([
+      "--date=iso-strict",
+      "--pretty=format:%H%x09%an%x09%ae%x09%ad%x09%s",
+      "--",
+    ]);
+    cmd.arg(rel);
+
+    let output = cmd
+      .current_dir(&root)
+      .output()
+      .map_err(|e| format!("git log error: {e}"))?;
+    if !output.status.success() {
+      return Ok(Vec::new());
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut items: Vec<GitCommitEntry> = Vec::new();
+    for line in text.lines() {
+      let t = line.trim();
+      if t.is_empty() {
+        continue;
+      }
+      let parts: Vec<&str> = t.split('\t').collect();
+      if parts.len() < 5 {
+        continue;
+      }
+      let hash = parts[0].trim().to_string();
+      let author = parts[1].trim().to_string();
+      let email_str = parts[2].trim();
+      let date = parts[3].trim().to_string();
+      let summary = parts[4].trim().to_string();
+      let author_email = if email_str.is_empty() {
+        None
+      } else {
+        Some(email_str.to_string())
+      };
+      items.push(GitCommitEntry {
+        hash,
+        summary,
+        author,
+        author_email,
+        date,
+      });
+    }
+    Ok(items)
+  })
+  .await
+  .map_err(|e| format!("join error: {e}"))?;
+
+  res
+}
+
+#[tauri::command]
+async fn git_file_diff(
+  repo_path: String,
+  file_path: String,
+  commit: Option<String>,
+  context_lines: Option<u32>,
+) -> Result<String, String> {
+  let ctx = context_lines.unwrap_or(3);
+  let commit_arg = commit.clone();
+
+  let res = tauri::async_runtime::spawn_blocking(move || {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let root = PathBuf::from(&repo_path);
+    if !root.exists() {
+      return Ok::<String, String>(String::new());
+    }
+    let file = PathBuf::from(&file_path);
+    let rel = file.strip_prefix(&root).unwrap_or(&file);
+
+    let ctx_lines = if ctx == 0 { 1 } else { ctx };
+
+    let mut cmd = Command::new("git");
+    if let Some(cmt) = commit_arg {
+      cmd.arg("show");
+      cmd.arg(format!("--unified={}", ctx_lines));
+      cmd.arg(cmt);
+      cmd.arg("--");
+      cmd.arg(rel);
+    } else {
+      cmd.arg("diff");
+      cmd.arg(format!("--unified={}", ctx_lines));
+      cmd.arg("HEAD");
+      cmd.arg("--");
+      cmd.arg(rel);
+    }
+
+    let output = cmd
+      .current_dir(&root)
+      .output()
+      .map_err(|e| format!("git diff error: {e}"))?;
+    if !output.status.success() {
+      return Ok(String::new());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+  })
+  .await
+  .map_err(|e| format!("join error: {e}"))?;
+
+  res
+}
+
+#[tauri::command]
+async fn git_init_repo(repo_path: String) -> Result<(), String> {
+  let res = tauri::async_runtime::spawn_blocking(move || {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let root = PathBuf::from(&repo_path);
+    if !root.exists() {
+      return Err("路径不存在".into());
+    }
+
+    let output = Command::new("git")
+      .arg("init")
+      .current_dir(&root)
+      .output()
+      .map_err(|e| format!("git init error: {e}"))?;
+    if !output.status.success() {
+      let msg = String::from_utf8_lossy(&output.stderr).to_string();
+      return Err(if msg.is_empty() { "git init failed".into() } else { msg });
+    }
+    Ok(())
+  })
+  .await
+  .map_err(|e| format!("join error: {e}"))?;
+
+  res
+}
+
+#[tauri::command]
+async fn git_commit_snapshot(
+  repo_path: String,
+  file_path: Option<String>,
+  message: String,
+  all: Option<bool>,
+) -> Result<(), String> {
+  let res = tauri::async_runtime::spawn_blocking(move || {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let root = PathBuf::from(&repo_path);
+    if !root.exists() {
+      return Err("路径不存在".into());
+    }
+
+    let scope_all = all.unwrap_or(false) || file_path.is_none();
+
+    let mut add_cmd = Command::new("git");
+    add_cmd.arg("add");
+    if scope_all {
+      add_cmd.arg("--all");
+    } else if let Some(fp) = &file_path {
+      let file = PathBuf::from(fp);
+      let rel = file.strip_prefix(&root).unwrap_or(&file);
+      add_cmd.arg(rel);
+    }
+    let add_out = add_cmd
+      .current_dir(&root)
+      .output()
+      .map_err(|e| format!("git add error: {e}"))?;
+    if !add_out.status.success() {
+      let msg = String::from_utf8_lossy(&add_out.stderr).to_string();
+      return Err(if msg.is_empty() { "git add failed".into() } else { msg });
+    }
+
+    let mut commit_cmd = Command::new("git");
+    commit_cmd.arg("commit").arg("-m").arg(message);
+    let commit_out = commit_cmd
+      .current_dir(&root)
+      .output()
+      .map_err(|e| format!("git commit error: {e}"))?;
+    if !commit_out.status.success() {
+      let msg = String::from_utf8_lossy(&commit_out.stderr).to_string();
+      if msg.contains("nothing to commit") {
+        return Ok(());
+      }
+      return Err(if msg.is_empty() { "git commit failed".into() } else { msg });
+    }
+
+    Ok(())
+  })
+  .await
+  .map_err(|e| format!("join error: {e}"))?;
+
+  res
 }
 
 #[tauri::command]
