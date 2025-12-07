@@ -41,7 +41,7 @@ export function applyUiZoom(): void {
     } catch {}
     try {
       const pm = document.querySelector('#md-wysiwyg-root .ProseMirror') as HTMLElement | null
-      if (pm) pm.style.fontSize = (16 * scale).toFixed(2) + 'px'
+      if (pm) pm.style.fontSize = (16 * scale * 0.9).toFixed(2) + 'px'
     } catch {}
     // 更新状态栏缩放显示
     try {

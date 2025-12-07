@@ -811,6 +811,22 @@ body > .block-menu { display: none !important; }
 }
 .container.wysiwyg-v2 .ProseMirror img,
 .container.wysiwyg-v2 .ProseMirror video { max-width: 100%; height: auto; }
+/* 所见模式图片排版：尽量对齐阅读模式的 .preview img 样式 */
+.container.wysiwyg-v2 .ProseMirror img {
+  display: block;
+  margin: 1.5em auto;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.container.wysiwyg-v2 .ProseMirror img:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+}
+.container.wysiwyg-v2 .ProseMirror img:not([width]):not([height]) {
+  max-width: 70%;
+  height: auto;
+}
 .container.wysiwyg-v2 .ProseMirror table {
   width: auto;
   max-width: 100%;
