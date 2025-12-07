@@ -94,10 +94,6 @@ function setSplitEnabled(enabled: boolean, deps: SplitDeps): void {
     }
   }
 
-  try {
-    localStorage.setItem('flymd:split-preview', enabled ? 'true' : 'false')
-  } catch {}
-
   // 分屏开关切换后，同步一次滚动位置，尽量保持阅读/编辑位置接近
   try {
     if (enabled) {
@@ -136,45 +132,12 @@ function syncPreviewScrollFromEditor(editor: HTMLTextAreaElement, preview: HTMLD
 
 function bindScrollSync(deps: SplitDeps): void {
   const { editor, preview } = deps
-  let syncing: 'none' | 'editor' | 'preview' = 'none'
-
-  const syncFromEditor = () => {
-    if (!splitPreviewEnabled || !isSupportedContext()) return
-    if (syncing !== 'none') return
-    syncing = 'editor'
-    try {
-      const er = Math.max(0, editor.scrollHeight - editor.clientHeight)
-      const pr = Math.max(0, preview.scrollHeight - preview.clientHeight)
-      if (er <= 0 || pr <= 0) return
-      const ratio = editor.scrollTop / er
-      preview.scrollTop = ratio * pr
-    } finally {
-      syncing = 'none'
-    }
-  }
-
-  const syncFromPreview = () => {
-    if (!splitPreviewEnabled || !isSupportedContext()) return
-    if (syncing !== 'none') return
-    syncing = 'preview'
-    try {
-      const er = Math.max(0, editor.scrollHeight - editor.clientHeight)
-      const pr = Math.max(0, preview.scrollHeight - preview.clientHeight)
-      if (er <= 0 || pr <= 0) return
-      const ratio = preview.scrollTop / pr
-      editor.scrollTop = ratio * er
-    } finally {
-      syncing = 'none'
-    }
-  }
-
   editor.addEventListener('scroll', () => {
     if (!splitPreviewEnabled) return
-    syncFromEditor()
-  })
-  preview.addEventListener('scroll', () => {
-    if (!splitPreviewEnabled) return
-    syncFromPreview()
+    if (!isSupportedContext()) return
+    try {
+      syncPreviewScrollFromEditor(editor, preview)
+    } catch {}
   })
 }
 
@@ -198,6 +161,46 @@ function bindContentSync(): void {
       }, 240)
     } catch {}
   })
+}
+
+// 安装全局钩子：在打开文件 / 新建文件 / 切换当前文件路径时自动关闭分屏
+function installGlobalHooks(deps: SplitDeps): void {
+  const flymd = getFlymd()
+  try {
+    // 打开文件时自动退出分屏（包括文件菜单、文件树、标签系统等统一走 flymdOpenFile）
+    if (!flymd.__splitPatchedOpenFile && typeof flymd.flymdOpenFile === 'function') {
+      flymd.__splitPatchedOpenFile = true
+      const origOpen = flymd.flymdOpenFile
+      flymd.flymdOpenFile = async (...args: any[]) => {
+        try { if (splitPreviewEnabled) setSplitEnabled(false, deps) } catch {}
+        return await origOpen.apply(flymd, args)
+      }
+    }
+  } catch {}
+
+  try {
+    // 新建文件时自动退出分屏
+    if (!flymd.__splitPatchedNewFile && typeof flymd.flymdNewFile === 'function') {
+      flymd.__splitPatchedNewFile = true
+      const origNew = flymd.flymdNewFile
+      flymd.flymdNewFile = async (...args: any[]) => {
+        try { if (splitPreviewEnabled) setSplitEnabled(false, deps) } catch {}
+        return await origNew.apply(flymd, args)
+      }
+    }
+  } catch {}
+
+  try {
+    // 当前文件路径变更（包括标签切换、重命名等）时自动退出分屏
+    if (!flymd.__splitPatchedSetCurrentFilePath && typeof flymd.flymdSetCurrentFilePath === 'function') {
+      flymd.__splitPatchedSetCurrentFilePath = true
+      const origSetPath = flymd.flymdSetCurrentFilePath
+      flymd.flymdSetCurrentFilePath = (path: string | null) => {
+        try { if (splitPreviewEnabled) setSplitEnabled(false, deps) } catch {}
+        try { origSetPath(path) } catch {}
+      }
+    }
+  } catch {}
 }
 
 function bindAutoClose(deps: SplitDeps): void {
@@ -244,14 +247,7 @@ function initSplitPreview(): void {
     bindScrollSync(deps)
     bindContentSync()
     bindAutoClose(deps)
-
-    // 恢复上次状态（仅在当前已经是源码模式且窗口足够宽时生效）
-    try {
-      const saved = localStorage.getItem('flymd:split-preview') === 'true'
-      if (saved && isSupportedContext() && window.innerWidth >= 1100) {
-        setSplitEnabled(true, deps)
-      }
-    } catch {}
+    installGlobalHooks(deps)
   } catch {}
 }
 

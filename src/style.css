@@ -626,6 +626,23 @@ body.compact-titlebar .window-btn.window-close:hover {
   padding-left: 16px;
   padding-right: calc(20px + var(--workspace-right-gap, 0px));
 }
+/* 分屏模式：中间竖直分割线 */
+.container.split-preview:not(.wysiwyg):not(.wysiwyg-v2)::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: var(--workspace-bottom-gap, 0px);
+  left: 55%;
+  width: 0;
+  border-left: 1px solid rgba(127,127,127,0.4);
+  pointer-events: none;
+  z-index: 3;
+}
+@media (prefers-color-scheme: dark) {
+  .container.split-preview:not(.wysiwyg):not(.wysiwyg-v2)::before {
+    border-left-color: rgba(255,255,255,0.25);
+  }
+}
 
 /* 阅读模式（非所见）背景：仅当不在所见模式时应用，避免影响所见叠加/真实所见 */
 .container:not(.wysiwyg):not(.wysiwyg-v2) .preview {
