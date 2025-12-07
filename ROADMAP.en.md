@@ -2,6 +2,13 @@
 
 [简体中文](ROADMAP.md) | [English](ROADMAP.en.md)
 
+## Update v0.6.7
+- Added: Markdown footnote syntax support (`[^1]` / `[^name]`) so both source and reading modes render proper footnote sections, keeping annotations structured in long documents.
+- Improved: Footnote markers in reading mode now show a tooltip with the full footnote content near the reference, reducing scroll back-and-forth when looking up notes.
+- Added: Published the “Git Version Control” extension, bringing a VS Code–style Git sidebar to flyMD with history list and inline diff highlighting for the current library and the current document.
+- Added: Extended the runtime with Git command bridge APIs that only allow safe operations such as status inspection, history querying and explicit commits, avoiding destructive actions on existing repositories.
+- Misc: Polished error handling and safety checks around Git-related features to lay groundwork for future version-control-centric extensions.
+
 ## Update v0.6.6
 - Added: Source mode now supports a “Source + Reading” split view with editor on the left and live preview on the right, keeping scroll positions in sync and making large-screen writing more comfortable.
 - Improved: Split view is hardened with window-width guard rails, auto-exit when switching modes or files, and debounced preview refresh to keep the layout stable on narrow windows.
