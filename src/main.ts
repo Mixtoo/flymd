@@ -144,6 +144,7 @@ import { initAutoSave, type AutoSaveHandles } from './core/autoSave'
 
 // 滚动条自动隐藏
 import { initAutoHideScrollbar, rescanScrollContainers } from './core/scrollbar'
+import { applyPlainTextPaste, type PlainPasteEnv } from './core/plainPaste'
 
 type Mode = 'edit' | 'preview'
 // 最近文件最多条数
@@ -828,6 +829,38 @@ async function buildBuiltinContextMenuItems(ctx: ContextMenuContext): Promise<Co
   let syncNote = ''
   if (!syncConfigured) syncNote = '当前库未配置 WebDAV，同步已禁用'
   else if (!syncEnabled) syncNote = '未启用'
+  // 编辑器内置：纯文本粘贴（忽略 HTML / 图片 等富文本）
+  items.push({
+    label: t('ctx.pastePlain') || '纯文本粘贴',
+    icon: '📋',
+    tooltip: '忽略 HTML/图片 等富文本，仅插入纯文本内容',
+    condition: (c) => c.mode === 'edit' || c.mode === 'wysiwyg',
+    onClick: async () => {
+      try {
+        let text = ''
+        try {
+          const nav = navigator as any
+          if (nav.clipboard && typeof nav.clipboard.readText === 'function') {
+            text = await nav.clipboard.readText()
+          }
+        } catch {}
+        if (!text) {
+          try {
+            alert('无法读取剪贴板内容，请使用 Ctrl+Shift+V 进行纯文本粘贴')
+          } catch {}
+          return
+        }
+        const env: PlainPasteEnv = {
+          insertAtCursor: (t) => insertAtCursor(t),
+          isPreviewMode: () => mode === 'preview',
+          isWysiwygMode: () => wysiwyg,
+          renderPreview: () => renderPreview(),
+          scheduleWysiwygRender: () => scheduleWysiwygRender(),
+        }
+        await applyPlainTextPaste(text, env)
+      } catch {}
+    },
+  })
   items.push({
     label: t('sync.now') || '立即同步',
     icon: '🔁',
@@ -862,25 +895,6 @@ async function buildBuiltinContextMenuItems(ctx: ContextMenuContext): Promise<Co
       })
     }
   } catch {}
-  items.push({ divider: true })
-  items.push({
-    label: t('menu.exportConfig') || '导出配置',
-    icon: '📦',
-    onClick: async () => { await handleExportConfigFromMenu() }
-  })
-  items.push({
-    label: t('menu.importConfig') || '导入配置',
-    icon: '📥',
-    onClick: async () => { await handleImportConfigFromMenu() }
-  })
-  const portableEnabled = await isPortableModeEnabled()
-  items.push({
-    label: t('menu.portableMode') || '便携模式',
-    icon: '💼',
-    note: portableEnabled ? (t('portable.enabledShort') || '已开启') : (t('portable.disabledShort') || '未开启'),
-    tooltip: t('portable.tooltip') || '开启后将在程序目录写入所有配置，方便在U盘等便携设备上使用',
-    onClick: async () => { await togglePortableModeFromMenu() }
-  })
   return items
 }
 
@@ -6168,23 +6182,45 @@ function showTopMenu(anchor: HTMLElement, items: TopMenuItemSpec[]) {
 function showFileMenu() {
   const anchor = document.getElementById('btn-open') as HTMLDivElement | null
   if (!anchor) return
-  const autoSave = getAutoSave()
-  const autoSaveEnabled = autoSave.isEnabled()
-  const items: TopMenuItemSpec[] = [
-    { label: t('file.new'), accel: 'Ctrl+N', action: () => { void newFile() } },
-    { label: t('file.open'), accel: 'Ctrl+O', action: () => { void openFile2() } },
-    // “最近文件”入口移入 文件 菜单
-    { label: t('menu.recent'), accel: 'Ctrl+Shift+R', action: () => { void renderRecentPanel(true) } },
-    {
-      // 启用时在前面加上对勾
-      label: `${autoSaveEnabled ? '✔ ' : ''}${t('file.autosave')}`,
-      accel: '60s',
-      action: () => { autoSave.toggle() },
-    },
-    { label: t('file.save'), accel: 'Ctrl+S', action: () => { void saveFile() } },
-    { label: t('file.saveas'), accel: 'Ctrl+Shift+S', action: () => { void saveAs() } },
-  ]
-  showTopMenu(anchor, items)
+  void (async () => {
+    const autoSave = getAutoSave()
+    const autoSaveEnabled = autoSave.isEnabled()
+    let portableEnabled = false
+    try {
+      portableEnabled = await isPortableModeEnabled()
+    } catch {}
+    const items: TopMenuItemSpec[] = [
+      { label: t('file.new'), accel: 'Ctrl+N', action: () => { void newFile() } },
+      { label: t('file.open'), accel: 'Ctrl+O', action: () => { void openFile2() } },
+      // “最近文件”入口移入 文件 菜单
+      { label: t('menu.recent'), accel: 'Ctrl+Shift+R', action: () => { void renderRecentPanel(true) } },
+      {
+        // 启用时在前面加上对勾
+        label: `${autoSaveEnabled ? '✔ ' : ''}${t('file.autosave')}`,
+        accel: '60s',
+        action: () => { autoSave.toggle() },
+      },
+      { label: t('file.save'), accel: 'Ctrl+S', action: () => { void saveFile() } },
+      { label: t('file.saveas'), accel: 'Ctrl+Shift+S', action: () => { void saveAs() } },
+    ]
+    // 配置相关操作移动到“文件”菜单
+    items.push({
+      label: t('menu.exportConfig') || '导出配置',
+      accel: '',
+      action: () => { void handleExportConfigFromMenu() },
+    })
+    items.push({
+      label: t('menu.importConfig') || '导入配置',
+      accel: '',
+      action: () => { void handleImportConfigFromMenu() },
+    })
+    items.push({
+      label: `${portableEnabled ? '✔ ' : ''}${t('menu.portableMode') || '便携模式'}`,
+      accel: '',
+      action: () => { void togglePortableModeFromMenu() },
+    })
+    showTopMenu(anchor, items)
+  })()
 }
 
 function showModeMenu() {
@@ -7832,10 +7868,14 @@ function bindEvents() {
       if (pasteCombo === 'plain') {
         try {
           e.preventDefault()
-          if (plainText) {
-            insertAtCursor(plainText)
-            if (mode === 'preview') await renderPreview(); else if (wysiwyg) scheduleWysiwygRender()
+          const env: PlainPasteEnv = {
+            insertAtCursor: (t) => insertAtCursor(t),
+            isPreviewMode: () => mode === 'preview',
+            isWysiwygMode: () => wysiwyg,
+            renderPreview: () => renderPreview(),
+            scheduleWysiwygRender: () => scheduleWysiwygRender(),
           }
+          await applyPlainTextPaste(plainText, env)
         } catch {}
         return
       }
