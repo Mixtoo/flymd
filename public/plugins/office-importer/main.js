@@ -209,7 +209,7 @@ export function activate(context) {
           }
 
           // 极简 HTML -> Markdown 转换，只处理常见结构，避免过度复杂
-          md = simpleHtmlToMarkdown(html, name)
+          md = await simpleHtmlToMarkdown(html, name, context)
         } else if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
           // 动态确保 XLSX 已加载
           await ensureXlsxLoaded(context)
@@ -253,10 +253,85 @@ export function deactivate() {
   // 当前无需特殊清理
 }
 
+// 根据 MIME 类型推断图片扩展名
+function guessExtFromMime(mime) {
+  const m = String(mime || '').toLowerCase()
+  if (m.includes('png')) return 'png'
+  if (m.includes('jpeg') || m.includes('jpg')) return 'jpg'
+  if (m.includes('gif')) return 'gif'
+  if (m.includes('webp')) return 'webp'
+  if (m.includes('bmp')) return 'bmp'
+  if (m.includes('svg')) return 'svg'
+  if (m.includes('avif')) return 'avif'
+  return 'bin'
+}
+
+// 将 data:URL 转换为二进制数据和建议文件名
+function dataUrlToBytes(dataUrl, baseName, index) {
+  const raw = String(dataUrl || '').trim()
+  const m = raw.match(/^data:([^;,]+)?((?:;[^,]+)*)?,([\s\S]*)$/i)
+  if (!m) {
+    throw new Error('无效的 data URL')
+  }
+  const mime = m[1] || 'application/octet-stream'
+  const params = m[2] || ''
+  const body = m[3] || ''
+  const isBase64 = /;base64/i.test(params)
+
+  let bytes
+  if (isBase64) {
+    const clean = body.replace(/\s+/g, '')
+    let bin = ''
+    if (typeof atob === 'function') {
+      bin = atob(clean)
+    } else if (typeof Buffer !== 'undefined') {
+      bin = Buffer.from(clean, 'base64').toString('binary')
+    } else {
+      throw new Error('当前环境不支持 base64 解码')
+    }
+    const arr = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) {
+      arr[i] = bin.charCodeAt(i) & 0xff
+    }
+    bytes = arr
+  } else {
+    const decoded = decodeURIComponent(body.replace(/\s+/g, ''))
+    if (typeof TextEncoder !== 'undefined') {
+      bytes = new TextEncoder().encode(decoded)
+    } else {
+      const arr = new Uint8Array(decoded.length)
+      for (let i = 0; i < decoded.length; i++) {
+        arr[i] = decoded.charCodeAt(i) & 0xff
+      }
+      bytes = arr
+    }
+  }
+
+  const ext = guessExtFromMime(mime)
+  const safeBase =
+    (baseName && String(baseName).trim().replace(/[\\/:*?"<>|]+/g, '_')) || 'image'
+  const idxStr = String(index || 1).padStart(3, '0')
+  const fileName = `${safeBase}-${idxStr}.${ext}`
+  return { data: bytes, fileName }
+}
+
 // 极简 HTML -> Markdown 转换
 // 目标：把 Word 常见结构（标题、段落、粗体、斜体、列表、图片、链接）转成可读 Markdown，而不是完美还原
-function simpleHtmlToMarkdown(html, fileName) {
-  let text = html
+async function simpleHtmlToMarkdown(html, fileName, context) {
+  let text = String(html || '')
+
+  // 提前处理图片：使用占位符存起来，后面统一落地为本地文件
+  const images = []
+  text = text.replace(/<img[^>]*>/gi, (m) => {
+    const srcMatch = m.match(/src=["']([^"']+)["']/i)
+    if (!srcMatch) return ''
+    const altMatch = m.match(/alt=["']([^"']*)["']/i)
+    const src = srcMatch[1]
+    const alt = altMatch ? altMatch[1] : ''
+    const placeholder = `__OFFICE_IMG_${images.length}__`
+    images.push({ placeholder, src, alt })
+    return placeholder
+  })
 
   // 替换换行，避免出现一长行
   text = text.replace(/<br\s*\/?>(\r?\n)?/gi, '\n')
@@ -298,16 +373,6 @@ function simpleHtmlToMarkdown(html, fileName) {
   text = text.replace(/<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_m, href, inner) => {
     const label = String(inner || '').trim() || href
     return `[${label}](${href})`
-  })
-
-  // 内嵌图片
-  text = text.replace(/<img[^>]*>/gi, (m) => {
-    const srcMatch = m.match(/src=["']([^"']+)["']/i)
-    if (!srcMatch) return ''
-    const altMatch = m.match(/alt=["']([^"']*)["']/i)
-    const src = srcMatch[1]
-    const alt = altMatch ? altMatch[1] : ''
-    return `![${alt}](${src})`
   })
 
   // 段落
@@ -372,6 +437,62 @@ function simpleHtmlToMarkdown(html, fileName) {
 
   // 去掉所有剩余标签
   text = text.replace(/<[^>]+>/g, '')
+
+  // 将图片占位符替换为 Markdown，并尽量写到本地 images 目录
+  if (images.length) {
+    const hasSaveBinary =
+      context && typeof context.saveBinaryToCurrentFolder === 'function'
+    const hasDownload =
+      context && typeof context.downloadFileToCurrentFolder === 'function'
+    const baseRaw =
+      (fileName && typeof fileName === 'string' && fileName.trim()) || 'image'
+    const safeBase =
+      baseRaw.replace(/\.[^.]+$/, '').replace(/[\\/:*?"<>|]+/g, '_') || 'image'
+
+    for (let i = 0; i < images.length; i++) {
+      const info = images[i]
+      let target = info.src
+      try {
+        if (hasSaveBinary && /^data:/i.test(info.src)) {
+          const parsed = dataUrlToBytes(info.src, safeBase, i + 1)
+          if (parsed && parsed.data && parsed.data.length) {
+            const saved = await context.saveBinaryToCurrentFolder({
+              fileName: parsed.fileName,
+              data: parsed.data,
+              subDir: 'images',
+              onConflict: 'renameAuto'
+            })
+            if (saved && (saved.fullPath || saved.relativePath)) {
+              target = (saved.fullPath || saved.relativePath).replace(/\\/g, '/')
+            }
+          }
+        } else if (hasDownload && /^https?:\/\//i.test(info.src)) {
+          const suggested = `${safeBase}-${String(i + 1).padStart(3, '0')}.png`
+          const saved = await context.downloadFileToCurrentFolder({
+            url: info.src,
+            fileName: suggested,
+            subDir: 'images',
+            onConflict: 'renameAuto'
+          })
+          if (saved && (saved.fullPath || saved.relativePath)) {
+            target = (saved.fullPath || saved.relativePath).replace(/\\/g, '/')
+          }
+        }
+      } catch (e) {
+        // 单个图片失败不影响整体流程，保留原始 src
+        console.error('[office-importer] 保存图片失败', e)
+      }
+      const alt = String(info.alt || '').replace(/]/g, '\\]')
+      const needsAngle = /\s|\(|\)/.test(target)
+      const wrappedSrc = needsAngle ? '<' + target + '>' : target
+      const mdImg = `![${alt}](${wrappedSrc})`
+      if (text.indexOf(info.placeholder) >= 0) {
+        text = text.split(info.placeholder).join(mdImg)
+      } else {
+        text += '\n\n' + mdImg + '\n'
+      }
+    }
+  }
 
   // 合理压缩空行
   text = text.replace(/\n{3,}/g, '\n\n').trim()

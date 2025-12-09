@@ -817,6 +817,128 @@ export function createPluginHost(
           throw e
         }
       },
+      // 将二进制数据保存到当前文档所在目录（或库根目录）
+      // 返回 { fullPath, relativePath }，relativePath 适合作为当前文档中的相对引用
+      saveBinaryToCurrentFolder: async (opt: {
+        fileName: string
+        data: Uint8Array | ArrayBuffer | number[]
+        subDir?: string
+        onConflict?: 'overwrite' | 'renameAuto' | 'error'
+      }): Promise<{ fullPath: string; relativePath: string }> => {
+        try {
+          if (!opt || !opt.fileName) {
+            throw new Error('fileName 不能为空')
+          }
+          if (!opt.data) {
+            throw new Error('data 不能为空')
+          }
+          const root = await deps.getLibraryRoot()
+          if (!root) {
+            throw new Error('当前未打开任何库')
+          }
+          const rootNorm = String(root).replace(/[\\/]+$/, '')
+          const current = deps.getCurrentFilePath()
+
+          // 优先使用当前文件所在目录；否则退回库根目录
+          let baseDir = rootNorm
+          if (current && current.startsWith(rootNorm)) {
+            baseDir = current.replace(/[\\/][^\\/]*$/, '')
+          }
+
+          const sep = baseDir.includes('\\') ? '\\' : '/'
+
+          let targetDir = baseDir
+          let relDirForMd = ''
+          const subDirRaw =
+            opt && typeof opt.subDir === 'string'
+              ? opt.subDir.trim()
+              : ''
+          if (subDirRaw) {
+            const cleanSub = subDirRaw
+              .replace(/[\\]+/g, '/')
+              .replace(/^\/+|\/+$/g, '')
+            if (cleanSub) {
+              targetDir =
+                baseDir + sep + cleanSub.replace(/\//g, sep)
+              relDirForMd = cleanSub
+            }
+          }
+
+          try {
+            if (targetDir !== baseDir) {
+              if (!(await exists(targetDir as any))) {
+                await mkdir(targetDir as any, {
+                  recursive: true,
+                } as any)
+              }
+            }
+          } catch {
+            // 目录创建失败时保持静默，由后续写文件报错或回退
+          }
+
+          const safeName =
+            String(opt.fileName)
+              .trim()
+              .replace(/[\\/:*?"<>|]+/g, '_') || 'file.bin'
+
+          const makeFull = (name: string) => targetDir + sep + name
+
+          const onConflict = opt.onConflict || 'renameAuto'
+          let finalName = safeName
+          let fullPath = makeFull(finalName)
+
+          if (onConflict === 'error') {
+            if (await exists(fullPath as any)) {
+              throw new Error('目标文件已存在：' + fullPath)
+            }
+          } else if (onConflict === 'renameAuto') {
+            if (await exists(fullPath as any)) {
+              const dot = safeName.lastIndexOf('.')
+              const base =
+                dot > 0 ? safeName.slice(0, dot) : safeName
+              const ext = dot > 0 ? safeName.slice(dot) : ''
+              let idx = 1
+              while (idx < 10000) {
+                const candidate = `${base}-${idx}${ext}`
+                const candidateFull = makeFull(candidate)
+                // eslint-disable-next-line no-await-in-loop
+                if (!(await exists(candidateFull as any))) {
+                  finalName = candidate
+                  fullPath = candidateFull
+                  break
+                }
+                idx += 1
+              }
+            }
+          }
+          // onConflict === 'overwrite' 时不做额外处理，直接写入覆盖
+
+          let bytes: Uint8Array
+          if (opt.data instanceof Uint8Array) {
+            bytes = opt.data
+          } else if (opt.data instanceof ArrayBuffer) {
+            bytes = new Uint8Array(opt.data)
+          } else if (Array.isArray(opt.data)) {
+            bytes = new Uint8Array(opt.data as any)
+          } else {
+            throw new Error('data 必须是 Uint8Array / ArrayBuffer / number[]')
+          }
+
+          await writeFile(fullPath as any, bytes as any)
+
+          const finalNameNorm = finalName.replace(/\\/g, '/')
+          const relativePath = relDirForMd
+            ? `${relDirForMd.replace(/\\/g, '/')}/${finalNameNorm}`
+            : finalNameNorm
+          return { fullPath, relativePath }
+        } catch (e) {
+          console.error(
+            `[Plugin ${p.id}] saveBinaryToCurrentFolder 失败:`,
+            e,
+          )
+          throw e
+        }
+      },
       saveMarkdownToCurrentFolder: async (opt: {
         fileName: string
         content: string
