@@ -31,6 +31,8 @@ export type ImagePasteDeps = {
 
   // 默认粘贴目录
   getDefaultPasteDir(): Promise<string | null>
+  // 用户图片目录（作为未保存文档的兜底目录）
+  getUserPicturesDir(): Promise<string | null>
 }
 
 // 供所见 V2 调用：将粘贴/拖拽的图片保存到本地，并返回可写入 Markdown 的路径
@@ -146,6 +148,16 @@ export async function saveImageToLocalAndGetPathCore(
         console.log('[saveImageToLocal] 保存成功:', result)
         return result
       }
+
+      // 若用户未配置默认粘贴目录，则回退到系统图片目录（与源码模式保持一致）
+      const picDir = await deps.getUserPicturesDir()
+      console.log('[saveImageToLocal] 默认粘贴目录为空，尝试用户图片目录:', picDir)
+      if (picDir) {
+        const base2 = picDir.replace(/[\\/]+$/, '')
+        const result = await writeTo(base2)
+        console.log('[saveImageToLocal] 使用用户图片目录保存成功:', result)
+        return result
+      }
     }
     console.log('[saveImageToLocal] 没有合适的保存路径，返回 null')
     return null
@@ -197,4 +209,3 @@ export async function toggleUploaderEnabledFromMenuCore(
     return uploaderEnabledSnapshot
   }
 }
-

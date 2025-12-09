@@ -1744,6 +1744,7 @@ async function saveImageToLocalAndGetPath(file: File, fname: string): Promise<st
       getUploaderConfig: () => getUploaderConfig(),
       getTranscodePrefs: () => getTranscodePrefs(),
       getDefaultPasteDir: () => getDefaultPasteDir(),
+      getUserPicturesDir: () => getUserPicturesDir(),
     },
     file,
     fname,
