@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-NonCommercial-green.svg" alt="License" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/flyhunterl/flymd" alt="License: GPL-3.0" /></a>
   <a href="https://github.com/flyhunterl/flymd"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg" alt="Platform" /></a>
   <a href="https://github.com/microsoft/winget-pkgs/tree/master/manifests/f/flyhunterl/FlyMD"><img src="https://img.shields.io/badge/winget-flyhunterl.FlyMD-blue" alt="Winget" /></a>
   <a href="https://t.me/+3SOMbwSbCvIxMGQ9"><img src="https://img.shields.io/badge/Telegram-Join-blue?logo=telegram&logoColor=white" alt="Telegram Community" /></a>
@@ -269,12 +269,12 @@ See: [ROADMAP.md](ROADMAP.md)
 
 ### License
 
-This project uses "FlySpeed MarkDown (flyMD) Non-Commercial Open Source License (NC 1.0)".
+This project is licensed under the [GNU General Public License v3.0 (GPL-3.0)](LICENSE).
 
-- ✅ **Allowed**: Non-commercial use, modification, copying, and redistribution (attribution required)
-- ❌ **Prohibited**: Commercial use without authorization
+- ✅ **Allowed**: Use, modify, copy, and redistribute for any purpose (including commercial), as long as you comply with GPL-3.0
+- ❗ **Constraint**: If you distribute FlyMD or modified versions (whether paid or free), you must provide the corresponding source code and keep copyright and license notices
 
-For commercial licensing, contact: flyhunterl <flyhunterl@gmail.com>
+For proprietary/commercial use cases that are incompatible with GPL-3.0, contact: flyhunterl <flyhunterl@gmail.com>
 
 Full License: [LICENSE](LICENSE) | Third-Party Components: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
 

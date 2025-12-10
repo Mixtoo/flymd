@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-NonCommercial-green.svg" alt="License" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/flyhunterl/flymd" alt="License: GPL-3.0" /></a>
   <a href="https://github.com/flyhunterl/flymd"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg" alt="Platform" /></a>
   <a href="https://github.com/microsoft/winget-pkgs/tree/master/manifests/f/flyhunterl/FlyMD"><img src="https://img.shields.io/badge/winget-flyhunterl.FlyMD-blue" alt="Winget" /></a>
   <a href="https://t.me/+3SOMbwSbCvIxMGQ9"><img src="https://img.shields.io/badge/Telegram-Join-blue?logo=telegram&logoColor=white" alt="Telegram 社区" /></a>
@@ -273,14 +273,14 @@ FlyMD 拥有丰富的插件生态,支持通过扩展插件无限扩展功能。
 
 ### 许可协议
 
-本项目采用"飞速MarkDown(flyMD)非商业开源许可协议(NC 1.0)"。
+本项目基于 [GNU 通用公共许可证 第 3 版 (GPL-3.0)](LICENSE) 发布。
 
-- ✅ **允许**:非商业使用、修改、复制与再分发(需保留署名)
-- ❌ **禁止**:未经授权的商业使用
+- ✅ **允许**：在遵守 GPL-3.0 的前提下，任何用途（包括商业用途）的使用、修改、复制与再分发
+- ❗ **约束**：若分发本项目或修改版本（无论是否收费），必须开放对应源代码并保留版权与许可信息
 
-商业授权请联系:flyhunterl <flyhunterl@gmail.com>
+如需在与 GPL-3.0 不兼容的闭源商业场景中使用本项目，请联系：flyhunterl <flyhunterl@gmail.com>
 
-完整许可证:[LICENSE](LICENSE) | 第三方组件:[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
+完整许可证：[LICENSE](LICENSE) | 第三方组件：[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
 
 ### 常见问题
 
