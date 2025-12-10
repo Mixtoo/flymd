@@ -1,6 +1,67 @@
 // 关系图谱插件：基于 backlinks 索引绘制当前文档的局部关系图
 
 let _panelRoot = null
+let _stylesInjected = false
+
+// 注入 CSS 样式和动画
+function injectStyles() {
+  if (_stylesInjected) return
+  _stylesInjected = true
+
+  const styleId = 'flymd-graph-view-styles'
+  if (document.getElementById(styleId)) return
+
+  const style = document.createElement('style')
+  style.id = styleId
+  style.textContent = `
+    @keyframes flymd-graph-pulse {
+      0%, 100% {
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4), 0 4px 12px rgba(59, 130, 246, 0.15);
+      }
+      50% {
+        box-shadow: 0 0 0 8px rgba(59, 130, 246, 0), 0 4px 16px rgba(59, 130, 246, 0.25);
+      }
+    }
+    @keyframes flymd-graph-fadeIn {
+      from { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+      to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    }
+    @keyframes flymd-graph-lineIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .flymd-graph-node {
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease !important;
+    }
+    .flymd-graph-node:hover {
+      transform: translate(-50%, -50%) scale(1.1) !important;
+      z-index: 10 !important;
+    }
+    .flymd-graph-node-center {
+      animation: flymd-graph-pulse 2.5s ease-in-out infinite, flymd-graph-fadeIn 0.4s ease-out;
+    }
+    .flymd-graph-node-neighbor {
+      animation: flymd-graph-fadeIn 0.3s ease-out;
+    }
+    .flymd-graph-edge {
+      animation: flymd-graph-lineIn 0.5s ease-out;
+    }
+    .flymd-graph-btn {
+      transition: all 0.15s ease !important;
+      border-radius: 6px !important;
+      font-weight: 500 !important;
+    }
+    .flymd-graph-btn:hover {
+      background: rgba(59, 130, 246, 0.1) !important;
+      border-color: rgba(59, 130, 246, 0.3) !important;
+      color: #3b82f6 !important;
+    }
+    .flymd-graph-btn:active {
+      transform: scale(0.96);
+    }
+  `
+  document.head.appendChild(style)
+}
 let _pollTimer = null
 let _ctxMenuDisposer = null
 let _lastContext = null
@@ -139,37 +200,47 @@ function renderGraphPanel(context, panelRoot) {
     panelRoot.removeChild(panelRoot.firstChild)
   }
 
-  // 头部：标题 + 操作
+  // 头部：标题 + 操作 - 现代风格
   const header = document.createElement('div')
   header.style.flex = '0 0 auto'
   header.style.display = 'flex'
   header.style.alignItems = 'center'
   header.style.justifyContent = 'space-between'
-  header.style.padding = '6px 8px'
-  header.style.fontSize = '12px'
+  header.style.padding = '12px 16px'
+  header.style.fontSize = '13px'
   header.style.borderBottom = '1px solid rgba(0,0,0,0.06)'
-  header.style.background = 'rgba(255,255,255,0.9)'
+  header.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(250,250,252,0.9) 100%)'
   header.style.cursor = 'move'
 
   const titleSpan = document.createElement('span')
   titleSpan.textContent = '关系图谱'
   titleSpan.style.fontWeight = '600'
+  titleSpan.style.color = '#1a1a2e'
+  titleSpan.style.letterSpacing = '0.5px'
 
   const btnBox = document.createElement('div')
   btnBox.style.display = 'flex'
-  btnBox.style.gap = '4px'
+  btnBox.style.gap = '8px'
 
   const btnRefresh = document.createElement('button')
+  btnRefresh.className = 'flymd-graph-btn'
   btnRefresh.textContent = '刷新'
-  btnRefresh.style.fontSize = '11px'
-  btnRefresh.style.padding = '2px 6px'
+  btnRefresh.style.fontSize = '12px'
+  btnRefresh.style.padding = '4px 12px'
   btnRefresh.style.cursor = 'pointer'
+  btnRefresh.style.border = '1px solid rgba(0,0,0,0.1)'
+  btnRefresh.style.background = 'rgba(255,255,255,0.8)'
+  btnRefresh.style.color = '#374151'
 
   const btnHide = document.createElement('button')
+  btnHide.className = 'flymd-graph-btn'
   btnHide.textContent = '隐藏'
-  btnHide.style.fontSize = '11px'
-  btnHide.style.padding = '2px 6px'
+  btnHide.style.fontSize = '12px'
+  btnHide.style.padding = '4px 12px'
   btnHide.style.cursor = 'pointer'
+  btnHide.style.border = '1px solid rgba(0,0,0,0.1)'
+  btnHide.style.background = 'rgba(255,255,255,0.8)'
+  btnHide.style.color = '#374151'
 
   btnRefresh.addEventListener('click', (e) => {
     e.preventDefault()
@@ -246,13 +317,14 @@ function renderGraphPanel(context, panelRoot) {
     } catch {}
   })
 
-  // 当前文档信息
+  // 当前文档信息 - 现代风格
   const infoBar = document.createElement('div')
   infoBar.style.flex = '0 0 auto'
-  infoBar.style.padding = '4px 8px'
-  infoBar.style.fontSize = '11px'
-  infoBar.style.borderBottom = '1px dashed rgba(0,0,0,0.06)'
-  infoBar.style.color = 'rgba(0,0,0,0.6)'
+  infoBar.style.padding = '8px 16px'
+  infoBar.style.fontSize = '12px'
+  infoBar.style.borderBottom = '1px solid rgba(0,0,0,0.04)'
+  infoBar.style.color = '#6b7280'
+  infoBar.style.background = 'rgba(249, 250, 251, 0.5)'
 
   const curPathRaw =
     context.getCurrentFilePath && context.getCurrentFilePath()
@@ -279,8 +351,8 @@ function renderGraphPanel(context, panelRoot) {
   body.style.position = 'relative'
   body.style.flex = '1 1 auto'
   body.style.overflow = 'hidden'
-  body.style.background = 'var(--bg-color, #fafafa)'
-  body.style.borderTop = '1px solid rgba(0,0,0,0.03)'
+  // 现代渐变背景
+  body.style.background = 'linear-gradient(135deg, rgba(248,250,252,0.9) 0%, rgba(241,245,249,0.95) 100%)'
   panelRoot.appendChild(body)
 
   if (!snapshot) {
@@ -331,7 +403,7 @@ function renderGraphPanel(context, panelRoot) {
 
   layoutGraph(graph.nodes, panelWidth, panelHeight)
 
-  // 绘制边
+  // 绘制边 - 现代渐变风格
   for (const e of graph.edges || []) {
     const a = nodeById[e.from]
     const b = nodeById[e.to]
@@ -343,8 +415,8 @@ function renderGraphPanel(context, panelRoot) {
     const angle = Math.atan2(dy, dx)
 
     // 让连线只连接到节点"边缘"，而不是穿过节点中心
-    const r1 = a.kind === 'center' ? 18 : 14
-    const r2 = b.kind === 'center' ? 18 : 14
+    const r1 = a.kind === 'center' ? 22 : 16
+    const r2 = b.kind === 'center' ? 22 : 16
     const minGap = r1 + r2 + 4
     if (dist <= minGap) continue
     const ux = dx / dist
@@ -354,57 +426,66 @@ function renderGraphPanel(context, panelRoot) {
     const segLen = dist - r1 - r2
 
     const line = document.createElement('div')
+    line.className = 'flymd-graph-edge'
     line.style.position = 'absolute'
     line.style.left = startX + 'px'
     line.style.top = startY + 'px'
     line.style.width = segLen + 'px'
-    line.style.height = '1px'
-    line.style.background = 'rgba(0,0,0,0.22)'
+    line.style.height = '2px'
+    // 从中心节点发出的边有渐变效果
+    line.style.background = a.kind === 'center'
+      ? 'linear-gradient(90deg, rgba(59, 130, 246, 0.5) 0%, rgba(147, 197, 253, 0.3) 100%)'
+      : 'linear-gradient(90deg, rgba(147, 197, 253, 0.4) 0%, rgba(59, 130, 246, 0.35) 100%)'
+    line.style.borderRadius = '1px'
     line.style.transformOrigin = '0 50%'
     line.style.transform = 'rotate(' + angle + 'rad)'
     line.style.pointerEvents = 'none'
     body.appendChild(line)
   }
 
-  // 绘制节点
+  // 绘制节点 - 现代风格
   for (const n of graph.nodes) {
     const el = document.createElement('div')
-    el.className = 'flymd-graph-node'
+    el.className = 'flymd-graph-node ' + (n.kind === 'center' ? 'flymd-graph-node-center' : 'flymd-graph-node-neighbor')
     el.textContent = n.label
     el.title = n.path || ''
 
     const isCenter = n.kind === 'center'
-    const radius = isCenter ? 18 : 14
 
     el.style.position = 'absolute'
     el.style.left = n.x + 'px'
     el.style.top = n.y + 'px'
     el.style.transform = 'translate(-50%, -50%)'
-    el.style.minWidth = '40px'
-    el.style.maxWidth = '160px'
-    el.style.padding = '2px 6px'
+    el.style.minWidth = isCenter ? '56px' : '44px'
+    el.style.maxWidth = '180px'
+    el.style.padding = isCenter ? '0 14px' : '0 10px'
     el.style.borderRadius = '999px'
-    el.style.fontSize = isCenter ? '12px' : '11px'
-    el.style.textAlign = 'center'
+    el.style.fontSize = isCenter ? '13px' : '12px'
+    el.style.fontWeight = isCenter ? '600' : '500'
     el.style.whiteSpace = 'nowrap'
     el.style.overflow = 'hidden'
     el.style.textOverflow = 'ellipsis'
     el.style.cursor = 'pointer'
     el.style.boxSizing = 'border-box'
+    // 使用 flexbox 实现垂直居中
+    el.style.display = 'flex'
+    el.style.alignItems = 'center'
+    el.style.justifyContent = 'center'
+    el.style.height = isCenter ? '36px' : '28px'
+    // 现代化边框和背景
     el.style.border = isCenter
-      ? '1px solid rgba(0,120,215,0.8)'
-      : '1px solid rgba(0,0,0,0.18)'
+      ? '2px solid rgba(59, 130, 246, 0.6)'
+      : '1px solid rgba(203, 213, 225, 0.8)'
     el.style.background = isCenter
-      ? 'rgba(0,120,215,0.1)'
-      : 'rgba(255,255,255,0.9)'
+      ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(147, 197, 253, 0.2) 100%)'
+      : 'linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(248,250,252,0.9) 100%)'
     el.style.color = isCenter
-      ? 'rgba(0,70,150,0.95)'
-      : 'rgba(0,0,0,0.85)'
+      ? '#1d4ed8'
+      : '#374151'
     el.style.boxShadow = isCenter
-      ? '0 0 0 1px rgba(0,120,215,0.15)'
-      : '0 1px 2px rgba(0,0,0,0.08)'
-    el.style.lineHeight = radius * 2 + 'px'
-    el.style.height = radius * 2 + 'px'
+      ? '0 4px 12px rgba(59, 130, 246, 0.2), 0 2px 4px rgba(59, 130, 246, 0.1)'
+      : '0 2px 8px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)'
+    el.style.backdropFilter = 'blur(8px)'
 
     el.addEventListener('click', (e) => {
       e.preventDefault()
@@ -419,22 +500,26 @@ function renderGraphPanel(context, panelRoot) {
     body.appendChild(el)
   }
 
-  // 右下角拖拽缩放
+  // 右下角拖拽缩放 - 现代风格
   try {
     const resizer = document.createElement('div')
     resizer.style.position = 'absolute'
-    resizer.style.right = '6px'
-    resizer.style.bottom = '6px'
-    resizer.style.width = '16px'
-    resizer.style.height = '16px'
+    resizer.style.right = '8px'
+    resizer.style.bottom = '8px'
+    resizer.style.width = '14px'
+    resizer.style.height = '14px'
     resizer.style.cursor = 'se-resize'
-    resizer.style.borderRight = '2px solid rgba(0,0,0,0.3)'
-    resizer.style.borderBottom = '2px solid rgba(0,0,0,0.3)'
-    resizer.style.borderLeft = 'transparent'
-    resizer.style.borderTop = 'transparent'
+    resizer.style.borderRight = '2px solid rgba(59, 130, 246, 0.4)'
+    resizer.style.borderBottom = '2px solid rgba(59, 130, 246, 0.4)'
+    resizer.style.borderLeft = 'none'
+    resizer.style.borderTop = 'none'
     resizer.style.boxSizing = 'border-box'
-    resizer.style.background = 'rgba(255,255,255,0.7)'
-    resizer.style.borderRadius = '3px'
+    resizer.style.background = 'transparent'
+    resizer.style.borderRadius = '2px'
+    resizer.style.opacity = '0.6'
+    resizer.style.transition = 'opacity 0.2s ease'
+    resizer.addEventListener('mouseenter', () => { resizer.style.opacity = '1' })
+    resizer.addEventListener('mouseleave', () => { resizer.style.opacity = '0.6' })
 
     resizer.addEventListener('mousedown', (e) => {
       try {
@@ -446,10 +531,10 @@ function renderGraphPanel(context, panelRoot) {
         const startY = e.clientY
         const startW = rect.width
         const startH = rect.height
-        const minW = 520
-        const minH = 380
-        const maxW = Math.min((window.innerWidth || 1280) - 40, 980)
-        const maxH = Math.min((window.innerHeight || 720) - 40, 720)
+        const minW = 400
+        const minH = 300
+        const maxW = (window.innerWidth || 1920) - 60
+        const maxH = (window.innerHeight || 1080) - 60
 
         const move = (ev) => {
           try {
@@ -485,6 +570,8 @@ function renderGraphPanel(context, panelRoot) {
 
 export async function activate(context) {
   _lastContext = context
+  // 注入样式
+  injectStyles()
   // 悬浮窗口：默认隐藏，由用户手动打开
   const panelVisible = false
   const panelWidth = 640
@@ -494,20 +581,22 @@ export async function activate(context) {
     const container = document.querySelector('.container') || document.body
     const root = document.createElement('div')
     root.id = 'flymd-graph-view-panel'
-    // 居中悬浮窗口
+    // 居中悬浮窗口 - 现代毛玻璃风格
     root.style.position = 'fixed'
     root.style.left = '50%'
     root.style.top = '50%'
     root.style.transform = 'translate(-50%, -50%)'
     root.style.width = panelWidth + 'px'
-    root.style.maxWidth = 'min(90vw, 720px)'
+    root.style.maxWidth = '95vw'
     root.style.height = panelHeight + 'px'
-    root.style.maxHeight = 'min(80vh, 520px)'
+    root.style.maxHeight = '90vh'
     root.style.overflow = 'hidden'
-    root.style.borderRadius = '10px'
-    root.style.border = '1px solid rgba(0,0,0,0.12)'
-    root.style.background = 'var(--bg-color, #ffffff)'
-    root.style.boxShadow = '0 10px 30px rgba(0,0,0,0.18)'
+    root.style.borderRadius = '16px'
+    root.style.border = '1px solid rgba(255,255,255,0.2)'
+    root.style.background = 'rgba(255, 255, 255, 0.85)'
+    root.style.backdropFilter = 'blur(20px) saturate(180%)'
+    root.style.webkitBackdropFilter = 'blur(20px) saturate(180%)'
+    root.style.boxShadow = '0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)'
     root.style.display = panelVisible ? 'flex' : 'none'
     root.style.flexDirection = 'column'
     root.style.zIndex = '9999'
