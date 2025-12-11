@@ -25,24 +25,6 @@
 
 ---
 
-## 功能演示
-
-
-
-### PDF 高精度解析 + 翻译
-
-**示例为高精度解析插件（0.024元/页），同时提供MinerU解析插件（免费，自行申请API）**
-
-<img src="https://github.com/user-attachments/assets/2a512b4b-7083-41d9-9b84-f9b411b849f1" alt="PDF高精度解析翻译" width="800">
-
-### AI 对话联动 + 桌面便签
-
-**十种颜色可选 · 透明度自定义 · 支持可视化交互**
-
-<img src="https://github.com/user-attachments/assets/016617fa-1971-4711-8c5e-1398a1b0aa52" alt="AI对话联动推送和便签" width="800">
-
----
-
 ## 简介
 
 FlyMD 是一款轻量级、高性能的本地 Markdown 编辑器,支持 PDF 高精度解析、AI 辅助写作、智能待办提醒等功能。本地优先,数据安全可控,开箱即用。
@@ -89,6 +71,26 @@ FlyMD 是一款轻量级、高性能的本地 Markdown 编辑器,支持 PDF 高�
 - **扩展插件系统** - 支持自定义扩展,功能无限可能
 
 ---
+## 功能演示
+
+
+
+### PDF 高精度解析 + 翻译
+
+**示例为高精度解析插件（0.024元/页），同时提供MinerU解析插件（免费，自行申请API）**
+
+<img src="https://github.com/user-attachments/assets/2a512b4b-7083-41d9-9b84-f9b411b849f1" alt="PDF高精度解析翻译" width="800">
+
+### AI 对话联动 + 桌面便签
+
+**十种颜色可选 · 透明度自定义 · 支持可视化交互**
+
+<img src="https://github.com/user-attachments/assets/016617fa-1971-4711-8c5e-1398a1b0aa52" alt="AI对话联动推送和便签" width="800">
+
+---
+
+
+
 
 ## 快速开始
 
