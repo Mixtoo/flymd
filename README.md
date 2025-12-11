@@ -61,8 +61,14 @@ FlyMD 是一款轻量级、高性能的本地 Markdown 编辑器,支持 PDF 高�
 - **多格式导出** - PDF / DOCX
 - **便携模式** - 所有配置写入应用根目录,适合 U 盘携带
 
-> ⚠️ Linux 提示:在 Arch / Manjaro 等基于 Arch 的发行版上,AppImage 可能因 WebKitGTK / 显卡驱动出现白屏,~~建议优先使用 deb → debtap / PKGBUILD 转换为 pacman 包~~。
-> 现已提供 AUR 包 `flymd`,建议通过 AUR 安装(例如:`yay -S flymd`)
+> [!WARNING]
+> **Linux(Arch 系发行版)提示**
+> - 在 Arch / Manjaro 等基于 Arch 的发行版上,AppImage 版本可能因 WebKitGTK 或显卡驱动导致白屏;
+> - 推荐优先通过 AUR 包 `flymd` 安装(例如:`yay -S flymd`)。
+>
+> 旧的 deb → debtap / PKGBUILD 转 pacman 方案已不再推荐使用。
+>
+
 
 ### 数据安全
 
@@ -257,11 +263,39 @@ FlyMD 拥有丰富的插件生态,支持通过扩展插件无限扩展功能。
 
 ### 社区开发者
 
-| 开发者 | 贡献 |
-|--------|------|
-| <a href="https://github.com/xf959211192"><img src="https://github.com/xf959211192.png" width="32" alt="xf959211192 头像" /></a> [xf959211192](https://github.com/xf959211192) | Telegraph-Image 图床上传 |
-| <a href="https://github.com/Vita0519"><img src="https://github.com/Vita0519.png" width="32" alt="Vita0519 头像" /></a> [Vita0519](https://github.com/Vita0519) | 小红书文案生成 AI 文案扩展 |
-| <a href="https://github.com/Integral-Tech"><img src="https://github.com/Integral-Tech.png" width="32" alt="Integral-Tech 头像" /></a> [Integral-Tech](https://github.com/Integral-Tech) | Arch Linux AUR 包维护 |
+<table>
+  <tr>
+    <th>开发者</th>
+    <th>贡献</th>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/xf959211192">
+        <img src="https://github.com/xf959211192.png" width="40" alt="xf959211192 头像" /><br />
+        <sub><b>xf959211192</b></sub>
+      </a>
+    </td>
+    <td>Telegraph-Image 图床上传</td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/Vita0519">
+        <img src="https://github.com/Vita0519.png" width="40" alt="Vita0519 头像" /><br />
+        <sub><b>Vita0519</b></sub>
+      </a>
+    </td>
+    <td>小红书文案生成 AI 文案扩展</td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/Integral-Tech">
+        <img src="https://github.com/Integral-Tech.png" width="40" alt="Integral-Tech 头像" /><br />
+        <sub><b>Integral-Tech</b></sub>
+      </a>
+    </td>
+    <td>Arch Linux AUR 包维护</td>
+  </tr>
+</table>
 
 ### 贡献指南
 

@@ -75,7 +75,13 @@ FlyMD is a lightweight, high-performance local Markdown editor supporting high-p
 - **Multi-Format Export** - PDF / DOCX
 - **Portable Mode** - All config in app root directory, ideal for USB drives
 
-> ⚠️ Linux tip: On Arch / Manjaro and other Arch-based distributions, AppImage may show white screens due to WebKitGTK / GPU driver issues. ~~Recommended to convert deb → debtap / PKGBUILD to pacman package.~~ An official AUR package `flymd` is now available; it is recommended to install via AUR (e.g. `yay -S flymd`). See [Arch installation & troubleshooting](arch.md).
+> [!WARNING]
+> **Linux (Arch-based) note**
+> - On Arch / Manjaro and other Arch-based distributions, the AppImage build may show a blank window due to WebKitGTK or GPU driver issues.
+> - Prefer installing via the AUR package `flymd` (for example: `yay -S flymd`).
+>
+> The legacy `deb` → `debtap` / PKGBUILD to pacman conversion workflow is no longer recommended.
+>
 
 ### Data Security
 
