@@ -263,6 +263,7 @@ export function initPluginsMenu() {
     }
 
     _pluginsMenuBtn = pluginsBtn
+    updatePluginsMenuButton()
   } catch (e) {
     console.error('初始化插件菜单失败', e)
   }
@@ -296,4 +297,3 @@ function updatePluginsMenuButton() {
     _pluginsMenuBtn.style.display = 'none'
   }
 }
-

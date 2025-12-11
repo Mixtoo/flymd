@@ -23,6 +23,7 @@ import {
   type PluginHostState,
   type PluginDockPanelState,
 } from './pluginHost'
+import { addToPluginsMenu } from './pluginMenu'
 import type { PluginContextMenuItem } from '../ui/contextMenus'
 import type { NotificationType } from '../core/uiNotifications'
 import { t } from '../i18n'
@@ -58,6 +59,8 @@ export type PluginRuntimeDeps = {
   exportCurrentDocToPdf: (target: string) => Promise<void>
   openFileByPath: (path: string) => Promise<void>
   createStickyNote: (filePath: string) => Promise<void>
+  openUploaderSettings: () => void | Promise<void>
+  openWebdavSettings: () => void | Promise<void>
 }
 
 export type PluginRuntimeHandles = {
@@ -182,6 +185,18 @@ export function initPluginRuntime(
   }
 
   const pluginHost: PluginHost = createPluginHost(pluginHostDeps, pluginHostState)
+
+  // 内置扩展：收纳 WebDAV 同步与图床设置到"插件"下拉菜单
+  try {
+    addToPluginsMenu('builtin-webdav-sync', {
+      label: t('sync.title') || 'WebDAV 同步',
+      onClick: () => { void deps.openWebdavSettings() },
+    })
+    addToPluginsMenu('builtin-uploader-s3', {
+      label: t('menu.uploader') || '图床 (S3/R2)',
+      onClick: () => { void deps.openUploaderSettings() },
+    })
+  } catch {}
 
   // 插件市场：供自动更新等逻辑使用（扩展面板 UI 自己有一套）
   const pluginMarket = createPluginMarket({

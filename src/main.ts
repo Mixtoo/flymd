@@ -8878,6 +8878,8 @@ const pluginRuntime: PluginRuntimeHandles = initPluginRuntime({
       throw e
     }
   },
+  openUploaderSettings: () => { void openUploaderDialog() },
+  openWebdavSettings: () => { void openWebdavSyncDialog() },
 })
 
 const {
