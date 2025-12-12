@@ -170,6 +170,10 @@ function ntEnsureSettingsStyle() {
 .nt-task-table thead {
   background: rgba(127,127,127,0.06);
 }
+.nt-task-select-cell {
+  width: 32px;
+  text-align: center;
+}
 .nt-task-empty {
   padding: 18px;
   text-align: center;
@@ -512,6 +516,33 @@ function ntExtractTodoDateFromText(text) {
   const mm = String(mo).padStart(2, '0')
   const dd = String(d).padStart(2, '0')
   return `${y}-${mm}-${dd}`
+}
+
+// 写入任意文本文件（依赖宿主的 write_text_file_any 调用）
+async function ntWriteTextFileAny(context, path, content) {
+  if (!context || typeof context.invoke !== 'function') {
+    throw new Error('context.invoke 不可用，无法写入文件')
+  }
+  await context.invoke('write_text_file_any', { path, content })
+}
+
+// 获取 xxtui-todo-push 插件 API，可能不存在
+function ntGetXxtuiApi(context) {
+  try {
+    if (!context || typeof context.getPluginAPI !== 'function') return null
+    const api = context.getPluginAPI('xxtui-todo-push')
+    if (!api) return null
+    if (
+      typeof api.pushToXxtui !== 'function' ||
+      typeof api.createReminder !== 'function' ||
+      typeof api.parseAndCreateReminders !== 'function'
+    ) {
+      return null
+    }
+    return api
+  } catch {
+    return null
+  }
 }
 
 // 从 front matter 中提取 title / date / created（与属性视图插件保持同一风格）
@@ -1367,6 +1398,13 @@ async function ntOpenTasksPanel(context) {
   table.className = 'nt-task-table'
   const thead = document.createElement('thead')
   const headTr = document.createElement('tr')
+  const selectTh = document.createElement('th')
+  selectTh.className = 'nt-task-select-cell'
+  const selectAllInput = document.createElement('input')
+  selectAllInput.type = 'checkbox'
+  selectAllInput.title = ntText('选择当前列表所有任务', 'Select all visible todos')
+  selectTh.appendChild(selectAllInput)
+  headTr.appendChild(selectTh)
   ;[
     ntText('文档标题', 'Note title'),
     ntText('任务内容', 'Task text'),
@@ -1392,7 +1430,24 @@ async function ntOpenTasksPanel(context) {
   const footerInfo = document.createElement('div')
   footerInfo.style.fontSize = '12px'
   footerInfo.style.opacity = '0.8'
+  footerInfo.style.marginRight = 'auto'
   footer.appendChild(footerInfo)
+  const btnPushNow = document.createElement('button')
+  btnPushNow.className = 'nt-btn'
+  btnPushNow.textContent = ntText('推送到 xxtui', 'Push to xxtui')
+  const btnCreateReminders = document.createElement('button')
+  btnCreateReminders.className = 'nt-btn'
+  btnCreateReminders.textContent = ntText('创建 xxtui 提醒', 'Create xxtui reminders')
+  const btnMarkDone = document.createElement('button')
+  btnMarkDone.className = 'nt-btn'
+  btnMarkDone.textContent = ntText('标记已完成', 'Mark done')
+  const btnMarkOpen = document.createElement('button')
+  btnMarkOpen.className = 'nt-btn'
+  btnMarkOpen.textContent = ntText('标记未完成', 'Mark open')
+  footer.appendChild(btnPushNow)
+  footer.appendChild(btnCreateReminders)
+  footer.appendChild(btnMarkDone)
+  footer.appendChild(btnMarkOpen)
 
   dialog.appendChild(header)
   dialog.appendChild(body)
@@ -1418,6 +1473,10 @@ async function ntOpenTasksPanel(context) {
   currentMonth.setHours(0, 0, 0, 0)
   let activeDate = ''
   let rangeMode = 'day' // day | week | month
+  const selectedKeys = new Set()
+
+  const getTaskKey = (t) =>
+    `${t && t.path ? String(t.path) : ''}:${t && t.line ? String(t.line) : 0}`
 
   function ntParseDateStrLocal(s) {
     if (!s || typeof s !== 'string') return null
@@ -1561,7 +1620,7 @@ async function ntOpenTasksPanel(context) {
     })
   }
 
-  function renderTasks() {
+  function getFilteredTasks() {
     const kw = String(kwInput.value || '').trim().toLowerCase()
     const status = statusSelect.value
     let filtered = allTasks.slice()
@@ -1600,12 +1659,17 @@ async function ntOpenTasksPanel(context) {
         filtered = filtered.filter((t) => t.date === activeDate)
       }
     }
+    return filtered
+  }
+
+  function renderTasks() {
+    const filtered = getFilteredTasks()
 
     tbody.innerHTML = ''
       if (!filtered.length) {
         const tr = document.createElement('tr')
         const td = document.createElement('td')
-        td.colSpan = 4
+        td.colSpan = 5
         td.className = 'nt-task-empty'
         td.textContent = ntText('没有匹配的任务。', 'No matching tasks.')
         tr.appendChild(td)
@@ -1613,6 +1677,39 @@ async function ntOpenTasksPanel(context) {
       } else {
         filtered.forEach((t) => {
           const tr = document.createElement('tr')
+
+          const tdSelect = document.createElement('td')
+          tdSelect.className = 'nt-task-select-cell'
+          const rowCheckbox = document.createElement('input')
+          rowCheckbox.type = 'checkbox'
+          const key = getTaskKey(t)
+          rowCheckbox.checked = selectedKeys.has(key)
+          rowCheckbox.onclick = (e) => {
+            e.stopPropagation()
+            if (rowCheckbox.checked) {
+              selectedKeys.add(key)
+            } else {
+              selectedKeys.delete(key)
+            }
+            // 更新全选状态
+            const all = getFilteredTasks()
+            const total = all.length
+            const selectedCount = all.filter((item) =>
+              selectedKeys.has(getTaskKey(item)),
+            ).length
+            if (!selectAllInput) return
+            if (!total || !selectedCount) {
+              selectAllInput.checked = false
+              selectAllInput.indeterminate = false
+            } else if (selectedCount === total) {
+              selectAllInput.checked = true
+              selectAllInput.indeterminate = false
+            } else {
+              selectAllInput.checked = false
+              selectAllInput.indeterminate = true
+            }
+          }
+          tdSelect.appendChild(rowCheckbox)
 
           const tdTitle = document.createElement('td')
           const titleBtn = document.createElement('span')
@@ -1645,12 +1742,30 @@ async function ntOpenTasksPanel(context) {
           const tdDate = document.createElement('td')
           tdDate.textContent = t.date || ''
 
+          tr.appendChild(tdSelect)
           tr.appendChild(tdTitle)
           tr.appendChild(tdText)
           tr.appendChild(tdStatus)
           tr.appendChild(tdDate)
           tbody.appendChild(tr)
         })
+        // 同步全选勾选状态
+        if (selectAllInput) {
+          const total = filtered.length
+          const selectedCount = filtered.filter((item) =>
+            selectedKeys.has(getTaskKey(item)),
+          ).length
+          if (!total || !selectedCount) {
+            selectAllInput.checked = false
+            selectAllInput.indeterminate = false
+          } else if (selectedCount === total) {
+            selectAllInput.checked = true
+            selectAllInput.indeterminate = false
+          } else {
+            selectAllInput.checked = false
+            selectAllInput.indeterminate = true
+          }
+        }
       }
     footerInfo.textContent = ntText(
       `当前任务数：${filtered.length}`,
@@ -1669,7 +1784,7 @@ async function ntOpenTasksPanel(context) {
       renderTasks()
     }
 
-    rangeSelect.onchange = () => {
+  rangeSelect.onchange = () => {
       const v = String(rangeSelect.value || 'day')
       if (v === 'week' || v === 'month' || v === 'day') {
         rangeMode = v
@@ -1677,6 +1792,17 @@ async function ntOpenTasksPanel(context) {
         rangeMode = 'day'
       }
       updateSelectedDateLabel()
+      renderTasks()
+    }
+
+    selectAllInput.onchange = () => {
+      const checked = !!selectAllInput.checked
+      const list = getFilteredTasks()
+      if (!checked) {
+        list.forEach((t) => selectedKeys.delete(getTaskKey(t)))
+      } else {
+        list.forEach((t) => selectedKeys.add(getTaskKey(t)))
+      }
       renderTasks()
     }
 
@@ -1693,6 +1819,7 @@ async function ntOpenTasksPanel(context) {
           `已索引任务数：${allTasks.length}`,
           `Indexed tasks: ${allTasks.length}`,
         )
+        updateSelectedDateLabel()
         renderCalendar()
         renderTasks()
       } catch (e) {
@@ -1708,6 +1835,248 @@ async function ntOpenTasksPanel(context) {
 
     btnRefresh.onclick = () => {
       void reloadTasks()
+    }
+
+    btnPushNow.onclick = async () => {
+      const api = ntGetXxtuiApi(context)
+      if (!api) {
+        if (context && context.ui && context.ui.notice) {
+          context.ui.notice(
+            ntText(
+              'xxtui 待办推送插件不可用，请先启用该插件。',
+              'xxtui todo push plugin is not available. Please enable it first.',
+            ),
+            'err',
+            3200,
+          )
+        }
+        return
+      }
+      const todos = getFilteredTasks().filter((t) =>
+        selectedKeys.has(getTaskKey(t)),
+      )
+      if (!todos.length) {
+        if (context && context.ui && context.ui.notice) {
+          context.ui.notice(
+            ntText('请先勾选要推送的任务。', 'Please select todos to push.'),
+            'warn',
+            2200,
+          )
+        }
+        return
+      }
+      const title = ntText(
+        `任务清单 · 共 ${todos.length} 条`,
+        `Todo list · ${todos.length} items`,
+      )
+      const lines = []
+      todos.forEach((t, idx) => {
+        const mark = t.done ? '[x]' : '[ ]'
+        const datePart = t.date ? ` · ${t.date}` : ''
+        lines.push(
+          `${idx + 1}. ${mark} ${t.text || ''}${datePart}`,
+        )
+      })
+      const content = lines.join('\n')
+      try {
+        const ok = await api.pushToXxtui(title, content)
+        if (context && context.ui && context.ui.notice) {
+          context.ui.notice(
+            ok
+              ? ntText('已推送到 xxtui。', 'Pushed to xxtui.')
+              : ntText('推送到 xxtui 失败。', 'Failed to push to xxtui.'),
+            ok ? 'ok' : 'err',
+            2600,
+          )
+        }
+      } catch (err) {
+        try {
+          console.error('[note-templates] 推送到 xxtui 失败', err)
+        } catch {}
+        if (context && context.ui && context.ui.notice) {
+          context.ui.notice(
+            ntText('推送到 xxtui 时出错。', 'Error while pushing to xxtui.'),
+            'err',
+            2600,
+          )
+        }
+      }
+    }
+
+    btnCreateReminders.onclick = async () => {
+      const api = ntGetXxtuiApi(context)
+      if (!api) {
+        if (context && context.ui && context.ui.notice) {
+          context.ui.notice(
+            ntText(
+              'xxtui 待办推送插件不可用，请先启用该插件。',
+              'xxtui todo push plugin is not available. Please enable it first.',
+            ),
+            'err',
+            3200,
+          )
+        }
+        return
+      }
+      const todos = getFilteredTasks().filter(
+        (t) => !t.done && selectedKeys.has(getTaskKey(t)),
+      )
+      if (!todos.length) {
+        if (context && context.ui && context.ui.notice) {
+          context.ui.notice(
+            ntText('请先勾选要创建提醒的任务。', 'Please select todos to create reminders.'),
+            'warn',
+            2600,
+          )
+        }
+        return
+      }
+      const md = todos
+        .map((t) => `- [ ] ${t.text || ''}`)
+        .join('\n')
+      try {
+        const res = await api.parseAndCreateReminders(md)
+        const succ = res && typeof res.success === 'number' ? res.success : 0
+        const failed =
+          res && typeof res.failed === 'number' ? res.failed : 0
+        if (context && context.ui && context.ui.notice) {
+          context.ui.notice(
+            ntText(
+              `已在 xxtui 创建提醒：成功 ${succ} 条，失败 ${failed} 条。`,
+              `Created reminders in xxtui: ${succ} succeeded, ${failed} failed.`,
+            ),
+            failed ? 'warn' : 'ok',
+            3200,
+          )
+        }
+      } catch (err) {
+        try {
+          console.error('[note-templates] 在 xxtui 创建提醒失败', err)
+        } catch {}
+        if (context && context.ui && context.ui.notice) {
+          context.ui.notice(
+            ntText('在 xxtui 创建提醒时出错。', 'Error while creating reminders in xxtui.'),
+            'err',
+            2600,
+          )
+        }
+      }
+    }
+
+    async function markTodos(doneFlag) {
+      const target = getFilteredTasks().filter((t) =>
+        selectedKeys.has(getTaskKey(t)),
+      )
+      if (!target.length) {
+        if (context && context.ui && context.ui.notice) {
+          context.ui.notice(
+            ntText('请先勾选要标记的任务。', 'Please select todos to mark.'),
+            'warn',
+            2200,
+          )
+        }
+        return
+      }
+
+      const byPath = new Map()
+      target.forEach((t) => {
+        const key = t && t.path ? String(t.path) : ''
+        if (!key) return
+        if (!byPath.has(key)) byPath.set(key, [])
+        byPath.get(key).push(t)
+      })
+
+      let success = 0
+      let failed = 0
+
+        for (const [path, list] of byPath.entries()) {
+          try {
+            let text = ''
+            if (typeof context.readTextFile === 'function') {
+              text = (await context.readTextFile(path)) || ''
+            } else if (typeof context.readFile === 'function') {
+              text = (await context.readFile(path)) || ''
+            } else {
+              failed += list.length
+              continue
+            }
+
+            const { frontMatter, body } = ntSplitFrontMatter(text)
+            const bodyText = body !== undefined ? body : text
+            const bodyLines = String(bodyText || '').split(/\r?\n/)
+
+            list.forEach((t) => {
+              const ln = (t && t.line ? Number(t.line) : 0) - 1
+              if (ln < 0 || ln >= bodyLines.length) {
+                failed++
+                return
+              }
+              const raw = bodyLines[ln]
+              const m = raw.match(/^(\s*[-*]\s+)\[(\s|x|X)\](\s+.*)$/)
+              if (!m) {
+                failed++
+                return
+              }
+              const prefix = m[1]
+              const suffix = m[3]
+              const ch = doneFlag ? 'x' : ' '
+              bodyLines[ln] = `${prefix}[${ch}]${suffix}`
+              success++
+            })
+
+            const nextBody = bodyLines.join('\n')
+            const nextText =
+              frontMatter !== null && frontMatter !== undefined
+                ? `${frontMatter}\n${nextBody}`
+                : nextBody
+
+            if (nextText !== text) {
+              await ntWriteTextFileAny(context, path, nextText)
+            }
+          } catch (err) {
+            failed += list.length
+            try {
+              console.error('[note-templates] 标记任务状态失败', err)
+            } catch {}
+          }
+        }
+
+      selectedKeys.clear()
+      await reloadTasks()
+
+      if (context && context.ui && context.ui.notice) {
+        if (success) {
+          context.ui.notice(
+            doneFlag
+              ? ntText(
+                  `已标记 ${success} 条为已完成`,
+                  `Marked ${success} todos as done`,
+                )
+              : ntText(
+                  `已标记 ${success} 条为未完成`,
+                  `Marked ${success} todos as open`,
+                ),
+            failed ? 'warn' : 'ok',
+            2600,
+          )
+        } else {
+          context.ui.notice(
+            ntText(
+              '未能标记任何任务，请检查这些行是否为标准待办语法（- [ ] / - [x]）。',
+              'No todos were marked. Please check if lines use "- [ ]" / "- [x]" syntax.',
+            ),
+            'warn',
+            3200,
+          )
+        }
+      }
+    }
+
+    btnMarkDone.onclick = () => {
+      void markTodos(true)
+    }
+    btnMarkOpen.onclick = () => {
+      void markTodos(false)
     }
     statusSelect.onchange = () => renderTasks()
     kwInput.onkeydown = (e) => {
