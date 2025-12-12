@@ -1,4 +1,26 @@
 // 关系图谱插件：基于 backlinks 索引绘制当前文档的局部关系图
+// 轻量多语言：跟随宿主（flymd.locale），默认用系统语言
+const GRAPH_LOCALE_LS_KEY = 'flymd.locale'
+function graphDetectLocale() {
+  try {
+    const nav = typeof navigator !== 'undefined' ? navigator : null
+    const lang = (nav && (nav.language || nav.userLanguage)) || 'en'
+    const lower = String(lang || '').toLowerCase()
+    if (lower.startsWith('zh')) return 'zh'
+  } catch {}
+  return 'en'
+}
+function graphGetLocale() {
+  try {
+    const ls = typeof localStorage !== 'undefined' ? localStorage : null
+    const v = ls && ls.getItem(GRAPH_LOCALE_LS_KEY)
+    if (v === 'zh' || v === 'en') return v
+  } catch {}
+  return graphDetectLocale()
+}
+function graphText(zh, en) {
+  return graphGetLocale() === 'en' ? en : zh
+}
 
 let _panelRoot = null
 let _stylesInjected = false
@@ -213,7 +235,7 @@ function renderGraphPanel(context, panelRoot) {
   header.style.cursor = 'move'
 
   const titleSpan = document.createElement('span')
-  titleSpan.textContent = '关系图谱'
+  titleSpan.textContent = graphText('关系图谱', 'Graph View')
   titleSpan.style.fontWeight = '600'
   titleSpan.style.color = '#1a1a2e'
   titleSpan.style.letterSpacing = '0.5px'
@@ -224,7 +246,7 @@ function renderGraphPanel(context, panelRoot) {
 
   const btnRefresh = document.createElement('button')
   btnRefresh.className = 'flymd-graph-btn'
-  btnRefresh.textContent = '刷新'
+  btnRefresh.textContent = graphText('刷新', 'Refresh')
   btnRefresh.style.fontSize = '12px'
   btnRefresh.style.padding = '4px 12px'
   btnRefresh.style.cursor = 'pointer'
@@ -234,7 +256,7 @@ function renderGraphPanel(context, panelRoot) {
 
   const btnHide = document.createElement('button')
   btnHide.className = 'flymd-graph-btn'
-  btnHide.textContent = '隐藏'
+  btnHide.textContent = graphText('隐藏', 'Hide')
   btnHide.style.fontSize = '12px'
   btnHide.style.padding = '4px 12px'
   btnHide.style.cursor = 'pointer'
@@ -336,13 +358,18 @@ function renderGraphPanel(context, panelRoot) {
 
   if (curDoc) {
     infoBar.textContent =
-      '当前：' +
+      graphText('当前：', 'Current: ') +
       (curDoc.title || curDoc.name || curDoc.path || curNorm)
   } else if (curNorm) {
-    infoBar.textContent =
-      '当前文档尚未出现在索引中，请先保存并在文档中使用 [[名称]] 链接。'
+    infoBar.textContent = graphText(
+      '当前文档尚未出现在索引中，请先保存并在文档中使用 [[名称]] 链接。',
+      'Current document is not in the index yet. Please save it and use [[Name]] links in the document.',
+    )
   } else {
-    infoBar.textContent = '当前没有已保存的文档。'
+    infoBar.textContent = graphText(
+      '当前没有已保存的文档。',
+      'No saved document is currently open.',
+    )
   }
 
   panelRoot.appendChild(infoBar)
@@ -361,8 +388,10 @@ function renderGraphPanel(context, panelRoot) {
     msg.style.fontSize = '12px'
     msg.style.color = 'rgba(0,0,0,0.6)'
     msg.style.whiteSpace = 'pre-line'
-    msg.textContent =
-      '未检测到双向链接索引。\n请先启用“双向链接”插件，并在其菜单中执行“重建双向链接索引”。'
+    msg.textContent = graphText(
+      '未检测到双向链接索引。\n请先启用“双向链接”插件，并在其菜单中执行“重建双向链接索引”。',
+      'Backlinks index not detected.\nPlease enable the "Backlinks" plugin and run "Rebuild backlinks index" from its menu.',
+    )
     body.appendChild(msg)
     return
   }
@@ -373,8 +402,10 @@ function renderGraphPanel(context, panelRoot) {
     msg.style.fontSize = '12px'
     msg.style.color = 'rgba(0,0,0,0.6)'
     msg.style.whiteSpace = 'pre-line'
-    msg.textContent =
-      '当前文档未在索引中。\n请确认已保存，并使用 [[名称]] 语法建立链接，然后在“双向链接”插件中重建索引。'
+    msg.textContent = graphText(
+      '当前文档未在索引中。\n请确认已保存，并使用 [[名称]] 语法建立链接，然后在“双向链接”插件中重建索引。',
+      'Current document is not in the index.\nPlease make sure it is saved and uses [[Name]] links, then rebuild the index in the "Backlinks" plugin.',
+    )
     body.appendChild(msg)
     return
   }
@@ -386,8 +417,10 @@ function renderGraphPanel(context, panelRoot) {
     msg.style.fontSize = '12px'
     msg.style.color = 'rgba(0,0,0,0.6)'
     msg.style.whiteSpace = 'pre-line'
-    msg.textContent =
-      '没有找到与当前文档的链接关系。\n请在其他文档中使用 [[当前文档名称]] 建立链接，或在当前文档中链接其他文档。'
+    msg.textContent = graphText(
+      '没有找到与当前文档的链接关系。\n请在其他文档中使用 [[当前文档名称]] 建立链接，或在当前文档中链接其他文档。',
+      'No links to the current document were found.\nUse [[current document name]] in other documents, or link to other documents from the current one.',
+    )
     body.appendChild(msg)
     return
   }
@@ -646,10 +679,10 @@ export async function activate(context) {
   // 在“插件”菜单中增加入口：刷新 + 显示/隐藏面板
   try {
     context.addMenuItem({
-      label: '关系图谱',
+      label: graphText('关系图谱', 'Graph View'),
       children: [
         {
-          label: '刷新当前关系图',
+          label: graphText('刷新当前关系图', 'Refresh current graph'),
           onClick: () => {
             if (_panelRoot) {
               renderGraphPanel(context, _panelRoot)
@@ -658,7 +691,7 @@ export async function activate(context) {
           },
         },
         {
-          label: '显示/隐藏关系图谱面板',
+          label: graphText('显示/隐藏关系图谱面板', 'Show/Hide graph panel'),
           onClick: () => {
             if (!_panelRoot) return
             const visible =
@@ -681,7 +714,7 @@ export async function activate(context) {
   try {
     if (context.addContextMenuItem) {
       _ctxMenuDisposer = context.addContextMenuItem({
-        label: '关系图谱',
+        label: graphText('关系图谱', 'Graph View'),
         icon: '🕸️',
         condition: (ctx) => {
           return (

@@ -1,7 +1,7 @@
 {
   "id": "flymd-graph-view",
   "name": "关系图谱（Graph View）",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "flyMD user",
   "description": "基于双向链接索引的关系图谱视图（当前文档局部图）。",
   "i18n": {
