@@ -48,6 +48,11 @@ const MARKET_OFFICIAL_I18N: Record<string, { name: string; author: string; desc:
     author: 'ext.ai.author',
     desc: 'ext.ai.desc',
   },
+  'markdown-table': {
+    name: 'ext.markdownTable.name',
+    author: 'ext.markdownTable.author',
+    desc: 'ext.markdownTable.desc',
+  },
   'batch-pdf': {
     name: 'ext.pdf.name',
     author: 'ext.pdf.author',
@@ -62,6 +67,41 @@ const MARKET_OFFICIAL_I18N: Record<string, { name: string; author: string; desc:
     name: 'ext.wordcount.name',
     author: 'ext.wordcount.author',
     desc: 'ext.wordcount.desc',
+  },
+  'git-history': {
+    name: 'ext.gitHistory.name',
+    author: 'ext.gitHistory.author',
+    desc: 'ext.gitHistory.desc',
+  },
+  'flymd-backlinks': {
+    name: 'ext.backlinks.name',
+    author: 'ext.backlinks.author',
+    desc: 'ext.backlinks.desc',
+  },
+  'flymd-graph-view': {
+    name: 'ext.graphView.name',
+    author: 'ext.graphView.author',
+    desc: 'ext.graphView.desc',
+  },
+  'office-importer': {
+    name: 'ext.officeImporter.name',
+    author: 'ext.officeImporter.author',
+    desc: 'ext.officeImporter.desc',
+  },
+  's3-gallery': {
+    name: 'ext.s3Gallery.name',
+    author: 'ext.s3Gallery.author',
+    desc: 'ext.s3Gallery.desc',
+  },
+  autoyaml: {
+    name: 'ext.autoyaml.name',
+    author: 'ext.autoyaml.author',
+    desc: 'ext.autoyaml.desc',
+  },
+  'typecho-manager': {
+    name: 'ext.typechoManager.name',
+    author: 'ext.typechoManager.author',
+    desc: 'ext.typechoManager.desc',
   },
   'xxtui-todo-push': {
     name: 'ext.todoPush.name',
