@@ -288,6 +288,18 @@
         "ref": "https://raw.githubusercontent.com/flyhunterl/flymd/main/public/plugins/property-view/manifest.json",
         "type": "manifest"
       }
+    },
+    {
+      "homepage": "https://github.com/flyhunterl/flymd",
+      "name": "笔记与任务日历",
+      "description": "提供日记、会议记录、读书笔记等常用模板，并集成任务总览与简单日历视图，基于 YAML 前置信息与 TODO 语法构建规范化笔记与时间视图。",
+      "author": "flyMD",
+      "id": "note-templates",
+      "category": "文档工具",
+      "install": {
+        "ref": "https://raw.githubusercontent.com/flyhunterl/flymd/main/public/plugins/note-templates/manifest.json",
+        "type": "manifest"
+      }
     }
   ]
 }
