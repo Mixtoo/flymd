@@ -24,7 +24,16 @@ export function getLocalePref(): LocalePref {
 }
 
 export function setLocalePref(v: LocalePref) {
-  try { localStorage.setItem(LS_KEY, v) } catch {}
+  try {
+    localStorage.setItem(LS_KEY, v)
+  } catch {}
+  try {
+    const win: any = typeof window !== 'undefined' ? window : null
+    if (win && typeof win.dispatchEvent === 'function' && typeof win.CustomEvent === 'function') {
+      const ev = new win.CustomEvent('flymd:localeChanged', { detail: { pref: v } })
+      win.dispatchEvent(ev)
+    }
+  } catch {}
 }
 
 export function getLocale(): Locale {
