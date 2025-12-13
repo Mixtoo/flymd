@@ -2723,16 +2723,15 @@ async function openSettingsDialog(settingsCtx) {
   // 索引云同步开关
   const rowCloud = document.createElement('div')
   rowCloud.className = 'flysmart-row'
-  const cloudLabel = document.createElement('div')
+  const cloudLabel = document.createElement('label')
   cloudLabel.style.fontWeight = '600'
-  cloudLabel.textContent = ragText('索引云同步', 'Index cloud sync')
-  const cloudBar = document.createElement('div')
-  cloudBar.style.display = 'flex'
-  cloudBar.style.alignItems = 'center'
-  cloudBar.style.gap = '10px'
   const inputCloud = document.createElement('input')
   inputCloud.type = 'checkbox'
   inputCloud.checked = !!cfg.cloudSyncEnabled
+  const spanCloud = document.createElement('span')
+  spanCloud.textContent = ragText('索引云同步', 'Index cloud sync')
+  cloudLabel.appendChild(inputCloud)
+  cloudLabel.appendChild(spanCloud)
   const cloudTip = document.createElement('div')
   cloudTip.className = 'flysmart-tip'
   const updateCloudTip = (webdavCfg) => {
@@ -2759,9 +2758,7 @@ async function openSettingsDialog(settingsCtx) {
   if (!webdavConfigSnapshot || !webdavConfigSnapshot.enabled) {
     inputCloud.disabled = true
   }
-  cloudBar.appendChild(inputCloud)
   rowCloud.appendChild(cloudLabel)
-  rowCloud.appendChild(cloudBar)
   rowCloud.appendChild(cloudTip)
 
   const btnIndex = document.createElement('button')
@@ -3269,6 +3266,7 @@ async function openSettingsDialog(settingsCtx) {
   body.appendChild(rowInclude)
   body.appendChild(rowExclude)
   body.appendChild(rowIndexDir)
+  body.appendChild(rowCloud)
   body.appendChild(rowActions)
   body.appendChild(rowRebuildAllTip)
   body.appendChild(rowRebuildDoc)
