@@ -3,6 +3,7 @@
 
 import type { Store } from '@tauri-apps/plugin-store'
 import { open } from '@tauri-apps/plugin-dialog'
+import { readTextFile, BaseDirectory } from '@tauri-apps/plugin-fs'
 import { createPluginMarket, FALLBACK_INSTALLABLES, compareInstallableItems, type InstallableItem } from './market'
 import {
   loadInstalledPlugins,
@@ -166,6 +167,64 @@ const MARKET_CATEGORY_I18N: Record<string, string> = {
   '知识管理': 'ext.category.knowledge',
 }
 
+type VendorKind = 'official' | 'thirdParty'
+
+function normalizeAuthor(raw?: string | null): string {
+  try {
+    return String(raw || '')
+      .toLowerCase()
+      .replace(/\s+/g, '')
+  } catch {
+    return ''
+  }
+}
+
+function isOfficialAuthor(raw?: string | null): boolean {
+  const v = normalizeAuthor(raw)
+  if (!v) return false
+  // 规则：作者包含 flymd / 飞速markdown 即视为官方
+  return v.includes('flymd') || v.includes('飞速markdown')
+}
+
+function getVendorKindByAuthor(author?: string | null): VendorKind {
+  return isOfficialAuthor(author) ? 'official' : 'thirdParty'
+}
+
+function createVendorTag(kind: VendorKind, authorRaw?: string | null): HTMLSpanElement {
+  const tag = document.createElement('span')
+  tag.className = 'ext-tag ext-vendor-tag'
+  tag.setAttribute('data-vendor', kind)
+  tag.textContent = kind === 'official'
+    ? t('ext.vendor.official' as any)
+    : t('ext.vendor.thirdParty' as any)
+  try {
+    if (kind === 'thirdParty') {
+      tag.title = t('ext.thirdParty.notice' as any)
+    } else if (authorRaw) {
+      tag.title = String(authorRaw)
+    }
+  } catch {}
+  return tag
+}
+
+function resolveMarketAuthorById(id: string): string {
+  try {
+    for (const it of _extLastMarketItems || []) {
+      if (!it || it.id !== id) continue
+      if (it.author) return String(it.author)
+      return ''
+    }
+  } catch {}
+  return ''
+}
+
+function resolveInstalledAuthor(p: InstalledPlugin): string {
+  try {
+    if (p && (p as any).author) return String((p as any).author)
+  } catch {}
+  return resolveMarketAuthorById(p?.id || '')
+}
+
 function getCategoryLabel(raw: string): string {
   try {
     const key = MARKET_CATEGORY_I18N[raw]
@@ -239,6 +298,43 @@ async function setInstalledPluginsToStore(map: Record<string, InstalledPlugin>):
   } catch {}
 }
 
+async function backfillInstalledAuthors(installedMap: Record<string, InstalledPlugin>): Promise<void> {
+  try {
+    if (!installedMap || !host) return
+    const updates: Record<string, string> = {}
+
+    const tasks = Object.values(installedMap).map(async (p) => {
+      try {
+        if (!p || p.builtin) return
+        if ((p as any).author) return
+        if (!p.dir) return
+
+        const manifestPath = `${p.dir}/manifest.json`
+        const text = await readTextFile(manifestPath as any, {
+          baseDir: BaseDirectory.AppLocalData,
+        } as any)
+        const json = JSON.parse(String(text || '')) as any
+        const author = json && typeof json.author === 'string' ? json.author.trim() : ''
+        if (!author) return
+        updates[p.id] = author
+      } catch {}
+    })
+
+    await Promise.all(tasks)
+    const ids = Object.keys(updates)
+    if (!ids.length) return
+
+    for (const id of ids) {
+      const p = installedMap[id]
+      if (!p) continue
+      ;(p as any).author = updates[id]
+      installedMap[id] = p
+    }
+
+    await setInstalledPluginsToStore(installedMap)
+  } catch {}
+}
+
 // 获取扩展卡片在统一网格中的排序序号（越小越靠前）
 function getPluginOrder(id: string, name?: string, bias = 0): number {
   try {
@@ -296,14 +392,15 @@ export async function refreshInstalledExtensionsUI(): Promise<void> {
     if (!unifiedList) return
 
     let installedMap: Record<string, InstalledPlugin> = {}
-    try {
-      installedMap = await getInstalledPluginsFromStore()
-    } catch {
-      installedMap = {}
-    }
-    _extLastInstalledMap = installedMap
+	    try {
+	      installedMap = await getInstalledPluginsFromStore()
+	    } catch {
+	      installedMap = {}
+	    }
+	    try { await backfillInstalledAuthors(installedMap) } catch {}
+	    _extLastInstalledMap = installedMap
 
-    const updateMap: Record<string, PluginUpdateState> = _extLastUpdateMap || {}
+	    const updateMap: Record<string, PluginUpdateState> = _extLastUpdateMap || {}
 
     renderInstalledExtensions(unifiedList, installedMap, updateMap)
 
@@ -418,17 +515,23 @@ function renderInstalledExtensions(
     nameText.textContent = fullName
     nameText.title = fullName
     name.appendChild(nameText)
+
+    const right = document.createElement('div')
+    right.className = 'ext-name-right'
+    const authorRaw = resolveInstalledAuthor(p)
+    right.appendChild(createVendorTag(getVendorKindByAuthor(authorRaw), authorRaw))
+
     const installedTag = document.createElement('span')
     installedTag.className = 'ext-tag'
     installedTag.textContent = t('ext.filter.installedChip')
-    installedTag.style.marginLeft = 'auto'
     installedTag.style.color = '#22c55e'
-    name.appendChild(installedTag)
+    right.appendChild(installedTag)
     const updateInfo = updateMap[p.id]
     if (updateInfo) {
       const badge = document.createElement('span'); badge.className = 'ext-update-badge'; badge.textContent = 'UP'
-      name.appendChild(badge)
+      right.appendChild(badge)
     }
+    name.appendChild(right)
     const desc = document.createElement('div'); desc.className = 'ext-desc'
     const descText = official ? t(official.desc as any) : (p.description || p.dir)
     desc.textContent = descText
@@ -679,6 +782,11 @@ export async function refreshExtensionsUI(): Promise<void> {
   hd.appendChild(btnRefresh)
   unifiedSection.appendChild(hd)
 
+  const thirdPartyNote = document.createElement('div')
+  thirdPartyNote.className = 'ext-thirdparty-note'
+  thirdPartyNote.textContent = t('ext.thirdParty.notice' as any)
+  unifiedSection.appendChild(thirdPartyNote)
+
   // 统一的扩展列表
   const unifiedList = document.createElement('div')
   unifiedList.className = 'ext-list'
@@ -713,6 +821,7 @@ export async function refreshExtensionsUI(): Promise<void> {
         builtinTag.style.marginLeft = '8px'
         builtinTag.style.color = '#3b82f6'
         name.appendChild(builtinTag)
+        name.appendChild(createVendorTag('official'))
         const desc = document.createElement('div'); desc.className = 'ext-desc'
         if (b.id === 'uploader-s3') {
           desc.textContent = t('ext.builtin.uploaderS3.desc' as any)
@@ -897,6 +1006,10 @@ export async function refreshExtensionsUI(): Promise<void> {
 
         const actions = document.createElement('div'); actions.className = 'ext-actions'
         if (host) {
+          const right = document.createElement('div')
+          right.className = 'ext-actions-right'
+          right.appendChild(createVendorTag(getVendorKindByAuthor(it.author), it.author))
+
           const btnInstall = document.createElement('button'); btnInstall.className = 'btn primary'; btnInstall.textContent = t('ext.install.btn')
           btnInstall.addEventListener('click', async () => {
             try {
@@ -916,7 +1029,8 @@ export async function refreshExtensionsUI(): Promise<void> {
               host.pluginNotice(t('ext.install.fail') + (errMsg ? ': ' + errMsg : ''), 'err', 3000)
             }
           })
-          actions.appendChild(btnInstall)
+          right.appendChild(btnInstall)
+          actions.appendChild(right)
         }
         row.appendChild(meta); row.appendChild(actions)
         unifiedList.appendChild(row)
@@ -932,14 +1046,15 @@ export async function refreshExtensionsUI(): Promise<void> {
     }
   }
 
-  try {
-    installedMap = await getInstalledPluginsFromStore()
-  } catch { installedMap = {} }
-  try {
-    marketItems = await loadInstallablePlugins(false)
-  } catch {
-    marketItems = FALLBACK_INSTALLABLES.slice()
-  }
+	  try {
+	    installedMap = await getInstalledPluginsFromStore()
+	  } catch { installedMap = {} }
+	  try { await backfillInstalledAuthors(installedMap) } catch {}
+	  try {
+	    marketItems = await loadInstallablePlugins(false)
+	  } catch {
+	    marketItems = FALLBACK_INSTALLABLES.slice()
+	  }
 
   // 根据最新的市场索引构建分类列表（如果存在分类字段）
   try {

@@ -349,6 +349,9 @@ const dict = {
     'ext.filter.showStandalone.fail': '切换显示模式失败',
     'ext.chooseFolder.title': '选择扩展文件夹',
     'ext.market.loading': '扩展市场正在加载…',
+    'ext.vendor.official': '官方',
+    'ext.vendor.thirdParty': '第三方',
+    'ext.thirdParty.notice': '所有第三方插件均已审核，但仍可能带来数据与隐私风险。',
     // 扩展市场官方插件多语言文案（桌面端与官网共用语义）
     'ext.ai.name': 'AI 写作助手',
     'ext.ai.author': '作者：飞速MarkDown',
@@ -733,6 +736,9 @@ const dict = {
     'ext.filter.showStandalone.fail': 'Failed to toggle display mode',
     'ext.chooseFolder.title': 'Choose extension folder',
     'ext.market.loading': 'Marketplace loading…',
+    'ext.vendor.official': 'Official',
+    'ext.vendor.thirdParty': 'Third-party',
+    'ext.thirdParty.notice': 'All third-party extensions are reviewed, but they may still pose data and privacy risks.',
     // Official extensions (shared semantics with website)
     'ext.ai.name': 'AI Writing Assistant',
     'ext.ai.author': 'By: FlyMD',

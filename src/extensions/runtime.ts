@@ -30,6 +30,7 @@ export type InstalledPlugin = {
   id: string
   name?: string
   version?: string
+  author?: string
   enabled?: boolean
   showInMenuBar?: boolean
   dir: string
@@ -406,6 +407,7 @@ export async function installPluginFromGitCore(
     id: manifest.id,
     name: manifest.name,
     version: manifest.version,
+    author: manifest.author,
     enabled,
     showInMenuBar: false, // 新安装的插件默认收纳到"插件"菜单
     dir,
@@ -504,6 +506,7 @@ export async function installPluginFromLocalCore(
     id: manifest.id,
     name: manifest.name,
     version: manifest.version,
+    author: manifest.author,
     enabled,
     showInMenuBar: false,
     dir,
