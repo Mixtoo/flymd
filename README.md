@@ -281,16 +281,25 @@ FlyMD 拥有丰富的插件生态,支持通过扩展插件无限扩展功能。
     </td>
     <td>小红书文案生成 AI 文案扩展</td>
   </tr>
-  <tr>
-    <td align="center">
-      <a href="https://github.com/Integral-Tech">
-        <img src="https://github.com/Integral-Tech.png" width="40" alt="Integral-Tech 头像" /><br />
-        <sub><b>Integral-Tech</b></sub>
-      </a>
-    </td>
-    <td>Arch Linux AUR 包维护</td>
-  </tr>
-</table>
+	  <tr>
+	    <td align="center">
+	      <a href="https://github.com/Integral-Tech">
+	        <img src="https://github.com/Integral-Tech.png" width="40" alt="Integral-Tech 头像" /><br />
+	        <sub><b>Integral-Tech</b></sub>
+	      </a>
+	    </td>
+	    <td>Arch Linux AUR 包维护</td>
+	  </tr>
+	  <tr>
+	    <td align="center">
+	      <a href="https://github.com/qqxt">
+	        <img src="https://github.com/qqxt.png" width="40" alt="qqxt 头像" /><br />
+	        <sub><b>qqxt</b></sub>
+	      </a>
+	    </td>
+	    <td>Web 图床上传</td>
+	  </tr>
+	</table>
 
 ### 贡献指南
 

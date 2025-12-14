@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2025-12-11T16:00:00Z",
+  "updatedAt": "2025-12-14T00:00:00Z",
   "ttlSeconds": 3600,
   "items": [
     {
@@ -139,6 +139,18 @@
       "category": "图床上传",
       "install": {
         "ref": "xf959211192/telegraph-image-flymd@main",
+        "type": "github"
+      }
+    },
+    {
+      "homepage": "https://github.com/qqxt/flymd-web-uploader",
+      "name": "简单图床 easyImage2.0上传工具",
+      "description": "通过配置 URL、参数名和 JsonPath，将本地图片上传到任何自定义 Web API。",
+      "author": "qqxt",
+      "id": "flymd-web-uploader",
+      "category": "图床上传",
+      "install": {
+        "ref": "qqxt/flymd-web-uploader@main",
         "type": "github"
       }
     },

@@ -171,9 +171,12 @@ type VendorKind = 'official' | 'thirdParty'
 
 function normalizeAuthor(raw?: string | null): string {
   try {
-    return String(raw || '')
+    let v = String(raw || '')
       .toLowerCase()
       .replace(/\s+/g, '')
+    // 去掉常见前缀，避免把“作者：xxx / By: xxx”误判为名字的一部分
+    v = v.replace(/^(作者|author|by)[：:]/, '')
+    return v
   } catch {
     return ''
   }
@@ -183,7 +186,8 @@ function isOfficialAuthor(raw?: string | null): boolean {
   const v = normalizeAuthor(raw)
   if (!v) return false
   // 规则：作者包含 flymd / 飞速markdown 即视为官方
-  return v.includes('flymd') || v.includes('飞速markdown')
+  // 但只接受“以 flymd / 飞速markdown 开头”，避免“adapted from flymd ...”这类误判
+  return v.startsWith('flymd') || v.startsWith('飞速markdown')
 }
 
 function getVendorKindByAuthor(author?: string | null): VendorKind {

@@ -259,6 +259,7 @@ Stay connected for the latest updates, preview builds, and tips:
 | <a href="https://github.com/xf959211192"><img src="https://github.com/xf959211192.png" width="32" alt="xf959211192 avatar" /></a> [xf959211192](https://github.com/xf959211192) | Telegraph-Image image hosting uploader |
 | <a href="https://github.com/Vita0519"><img src="https://github.com/Vita0519.png" width="32" alt="Vita0519 avatar" /></a> [Vita0519](https://github.com/Vita0519) | Xiaohongshu copywriting generator AI extension |
 | <a href="https://github.com/Integral-Tech"><img src="https://github.com/Integral-Tech.png" width="32" alt="Integral-Tech avatar" /></a> [Integral-Tech](https://github.com/Integral-Tech) | Arch Linux AUR package maintainer |
+| <a href="https://github.com/qqxt"><img src="https://github.com/qqxt.png" width="32" alt="qqxt avatar" /></a> [qqxt](https://github.com/qqxt) | Web image uploader |
 
 ### Contributing
 
