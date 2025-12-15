@@ -103,6 +103,8 @@ export type PluginHostDeps = {
   createStickyNote: (filePath: string) => Promise<void>
   // 布局刷新
   updatePluginDockGaps: () => void
+  // 所见模式链接应用（用于插件实现正确的链接插入，确保光标跳出）
+  wysiwygV2ApplyLink?: (href: string, labelOrTitle?: string, maybeTitle?: string) => Promise<void>
 }
 
 export type PluginHost = {
@@ -830,6 +832,51 @@ export function createPluginHost(
             deps.scheduleWysiwygRender()
           }
         } catch {}
+      },
+      applyLink: async (url: string, label?: string) => {
+        try {
+          const urlStr = String(url || '').trim()
+          if (!urlStr) throw new Error('链接地址不能为空')
+          const labelStr = label ? String(label).trim() : ''
+
+          // 所见模式：调用wysiwygV2ApplyLink（关键：会清空storedMarks）
+          if (deps.isWysiwyg() && deps.wysiwygV2ApplyLink) {
+            await deps.wysiwygV2ApplyLink(urlStr, labelStr || '链接文本')
+            return
+          }
+
+          // 源码模式：字符串替换
+          const ed = deps.getEditor()
+          if (!ed) return
+
+          const s = ed.selectionStart >>> 0
+          const e = ed.selectionEnd >>> 0
+          const a = Math.min(s, e)
+          const b = Math.max(s, e)
+          const v = String(ed.value || '')
+
+          let finalLabel = labelStr
+          if (!finalLabel) {
+            const selected = v.slice(a, b).trim()
+            finalLabel = selected || '链接文本'
+          }
+
+          const md = `[${finalLabel}](${urlStr})`
+          ed.value = v.slice(0, a) + md + v.slice(b)
+          const caret = a + md.length
+          ed.selectionStart = caret
+          ed.selectionEnd = caret
+
+          deps.markDirtyAndRefresh()
+          if (deps.isPreviewMode()) {
+            void deps.renderPreview()
+          } else if (deps.isWysiwyg()) {
+            deps.scheduleWysiwygRender()
+          }
+        } catch (e) {
+          console.error(`[Plugin ${p.id}] applyLink 失败:`, e)
+          throw e
+        }
       },
       readTextFile: async (absPath: string) => {
         try {

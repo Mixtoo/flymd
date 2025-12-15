@@ -8891,6 +8891,7 @@ const pluginRuntime: PluginRuntimeHandles = initPluginRuntime({
   getWebdavConfigSnapshot: async () => {
     try { return await getWebdavSyncConfig() } catch { return null }
   },
+  wysiwygV2ApplyLink: wysiwygV2ApplyLink,
 })
 
 const {

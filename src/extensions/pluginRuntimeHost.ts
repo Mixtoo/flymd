@@ -63,6 +63,8 @@ export type PluginRuntimeDeps = {
   openWebdavSettings: () => void | Promise<void>
   // WebDAV 相关：供插件基础设施使用
   getWebdavConfigSnapshot?: () => Promise<any | null>
+  // 所见模式链接应用
+  wysiwygV2ApplyLink?: (href: string, labelOrTitle?: string, maybeTitle?: string) => Promise<void>
 }
 
 export type PluginRuntimeHandles = {
@@ -186,6 +188,7 @@ export function initPluginRuntime(
     openFileByPath: (path: string) => deps.openFileByPath(path),
     createStickyNote: (filePath: string) => deps.createStickyNote(filePath),
     updatePluginDockGaps: () => updatePluginDockGaps(),
+    wysiwygV2ApplyLink: deps.wysiwygV2ApplyLink,
   }
 
   const pluginHost: PluginHost = createPluginHost(pluginHostDeps, pluginHostState)

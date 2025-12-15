@@ -851,7 +851,7 @@ function applyLink(context) {
       cleanup();
     };
 
-    okBtn.onclick = () => {
+    okBtn.onclick = async () => {
       const url = (urlInput.value || '').trim();
       let label = hasLabelFromSelection
         ? (currentText || '').trim()
@@ -862,12 +862,22 @@ function applyLink(context) {
       }
       if (!label) label = '链接文本';
 
-      const before = doc.slice(0, start);
-      const after = doc.slice(end);
-      const md = `[${label}](${url})`;
-      const next = before + md + after;
-      context.setEditorValue(next);
-      cleanup();
+      try {
+        if (context.applyLink) {
+          // 使用新API：正确处理所见模式的光标跳出
+          await context.applyLink(url, label);
+        } else {
+          // 降级处理（兼容旧版本）
+          const before = doc.slice(0, start);
+          const after = doc.slice(end);
+          const md = `[${label}](${url})`;
+          const next = before + md + after;
+          context.setEditorValue(next);
+        }
+        cleanup();
+      } catch (e) {
+        context.ui.notice('插入链接失败: ' + (e && e.message ? e.message : String(e)), 'err');
+      }
     };
 
     overlay.addEventListener('click', (e) => {
