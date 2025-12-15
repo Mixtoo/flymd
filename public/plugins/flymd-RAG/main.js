@@ -85,8 +85,8 @@ let FLYSMART_LOG = {
 }
 
 let FLYSMART_WATCH_DISPOSERS = [] // (()=>void)[]
-let FLYSMART_INCR_QUEUE = [] // string[]
-let FLYSMART_INCR_SET = new Set() // Set<string>
+let FLYSMART_INCR_QUEUE = [] // { op: 'upsert'|'delete', rel: string }[]
+let FLYSMART_INCR_SET = new Set() // Set<string>，key = `${op}:${rel}`
 let FLYSMART_INCR_TIMER = 0
 let FLYSMART_INCR_RUNNING = false
 
@@ -424,6 +424,11 @@ async function sha1Hex(str) {
   return fnv1aHex(String(str || ''))
 }
 
+async function computeTextFingerprint(text) {
+  const s = String(text ?? '')
+  return { size: s.length, hash: await sha1Hex(s) }
+}
+
 function joinFs(base, name) {
   const b = String(base || '').replace(/[\\/]+$/, '')
   const sep = b.includes('\\') ? '\\' : '/'
@@ -566,15 +571,19 @@ async function refreshIncrementalWatch(ctx, cfgOverride) {
       try {
         const e = ev || {}
         const type = String(e.type || '')
-        // 有些平台 create 不可靠：对“未索引过的文件”允许 modify 触发一次补偿
-        const allowed = type === 'create' || type === 'modify' || type === 'any'
-        if (!allowed) return
         const rels = Array.isArray(e.relatives) ? e.relatives : []
         for (const rawRel of rels) {
           const rel = normalizeRelativePath(rawRel)
           if (!rel) continue
+          if (type === 'delete' || type === 'remove' || type === 'unlink') {
+            enqueueIncrementalTask('delete', rel)
+            continue
+          }
+          // 有些平台 create 不可靠：对“未索引过的文件”允许 modify 触发一次补偿
+          const allowed = type === 'create' || type === 'modify' || type === 'any'
+          if (!allowed) continue
           if (!shouldIndexRel(rel, cfg, caseInsensitive)) continue
-          enqueueIncremental(rel)
+          enqueueIncrementalTask('upsert', rel)
         }
       } catch {}
     }
@@ -608,13 +617,15 @@ async function refreshIncrementalWatch(ctx, cfgOverride) {
   } catch {}
 }
 
-function enqueueIncremental(rel) {
+function enqueueIncrementalTask(op, rel) {
   try {
     const r = normalizeRelativePath(rel)
     if (!r) return
-    if (FLYSMART_INCR_SET.has(r)) return
-    FLYSMART_INCR_SET.add(r)
-    FLYSMART_INCR_QUEUE.push(r)
+    const o = op === 'delete' ? 'delete' : 'upsert'
+    const key = `${o}:${r}`
+    if (FLYSMART_INCR_SET.has(key)) return
+    FLYSMART_INCR_SET.add(key)
+    FLYSMART_INCR_QUEUE.push({ op: o, rel: r })
     if (FLYSMART_INCR_TIMER) return
     FLYSMART_INCR_TIMER = setTimeout(() => {
       FLYSMART_INCR_TIMER = 0
@@ -642,17 +653,25 @@ async function runIncrementalQueue() {
   FLYSMART_INCR_RUNNING = true
   try {
     while (FLYSMART_INCR_QUEUE.length) {
-      const rel = FLYSMART_INCR_QUEUE.shift()
-      try { FLYSMART_INCR_SET.delete(rel) } catch {}
-      if (!rel) continue
+      let rel = ''
+      let op = 'upsert'
       try {
-        await incrementalIndexOne(ctx, rel)
+        const task = FLYSMART_INCR_QUEUE.shift()
+        rel = task && task.rel ? task.rel : ''
+        op = task && task.op ? task.op : 'upsert'
+        try { FLYSMART_INCR_SET.delete(`${op}:${rel}`) } catch {}
+        if (!rel) continue
+        if (op === 'delete') {
+          await incrementalRemoveOne(ctx, rel)
+        } else {
+          await incrementalIndexOne(ctx, rel)
+        }
       } catch (e) {
         try {
           await dbg(
             ctx,
             '增量索引失败',
-            { rel, error: e && e.message ? String(e.message) : String(e) },
+            { op, rel, error: e && e.message ? String(e.message) : String(e) },
             true,
           )
         } catch {}
@@ -1392,6 +1411,7 @@ async function buildIndex(ctx) {
 
     const allChunks = []
     const fileToChunkIds = {}
+    const fileFingerprints = {}
     let processedFiles = 0
 
     for (const f of files || []) {
@@ -1455,6 +1475,11 @@ async function buildIndex(ctx) {
         await yieldToUi()
         continue
       }
+      let fp = { size: 0, hash: '' }
+      try {
+        fp = await computeTextFingerprint(text)
+      } catch {}
+      fileFingerprints[rel] = fp
       const lines = String(text || '').split(/\r?\n/)
       const parts = chunkByLines(lines, cfg.chunk)
       await dbg(ctx, '分块完成', { rel, chunks: parts.length }, false)
@@ -1631,8 +1656,13 @@ async function buildIndex(ctx) {
     for (const f of files || []) {
       const rel = String(f.relative || '')
       if (!Object.prototype.hasOwnProperty.call(fileToChunkIds, rel)) continue
+      const fp = Object.prototype.hasOwnProperty.call(fileFingerprints, rel)
+        ? fileFingerprints[rel] || {}
+        : {}
       meta.files[rel] = {
         mtimeMs: typeof f.mtime === 'number' ? f.mtime : 0,
+        size: typeof fp.size === 'number' && Number.isFinite(fp.size) ? fp.size : 0,
+        hash: typeof fp.hash === 'string' ? fp.hash : '',
         chunkIds: fileToChunkIds[rel] || [],
       }
     }
@@ -1684,6 +1714,69 @@ async function buildIndex(ctx) {
     } catch {}
     FLYSMART_NOTIFY_ID = ''
     FLYSMART_NOTIFY_LAST_AT = 0
+  }
+}
+
+function removeFileFromMeta(meta, rel) {
+  const r = normalizeRelativePath(rel)
+  if (!r || !meta) return { removed: false, oldChunks: 0 }
+  if (!meta.files || typeof meta.files !== 'object') meta.files = {}
+  if (!meta.chunks || typeof meta.chunks !== 'object') meta.chunks = {}
+  if (!Object.prototype.hasOwnProperty.call(meta.files, r)) return { removed: false, oldChunks: 0 }
+  const old = meta.files[r] || {}
+  const oldChunkIds = Array.isArray(old.chunkIds) ? old.chunkIds : []
+  for (const id of oldChunkIds) {
+    try { delete meta.chunks[id] } catch {}
+  }
+  try { delete meta.files[r] } catch {}
+  try { meta.updatedAt = Date.now() } catch {}
+  return { removed: true, oldChunks: oldChunkIds.length }
+}
+
+async function incrementalRemoveOne(ctx, relativePath) {
+  if (!ctx) return
+  if (FLYSMART_BUSY) return
+  FLYSMART_BUSY = true
+  try {
+    const cfg = await loadConfig(ctx)
+    if (!cfg || !cfg.enabled) return
+    const libraryRoot = await getLibraryRootRequired(ctx)
+    const rel = normalizeRelativePath(relativePath)
+    if (!rel) return
+
+    const cfgKey =
+      cfg.libraryKey || (await sha1Hex(normalizePathForKey(libraryRoot)))
+    const dataDir = await getIndexDataDir(ctx, cfg, libraryRoot)
+    const metaPath = joinFs(dataDir, META_FILE)
+
+    let meta = null
+    try {
+      if (typeof ctx.exists === 'function') {
+        const ok = await ctx.exists(metaPath)
+        if (ok) meta = await readJsonMaybe(ctx, metaPath)
+      } else {
+        meta = await readJsonMaybe(ctx, metaPath)
+      }
+    } catch {
+      meta = null
+    }
+    if (!meta) return
+    if (meta && meta.schemaVersion !== SCHEMA_VERSION) {
+      throw new Error(
+        ragText('索引版本不兼容，请点击“重建索引”', 'Index version mismatch; please click "Rebuild index".'),
+      )
+    }
+
+    const removed = removeFileFromMeta(meta, rel)
+    if (!removed.removed) return
+    await ctx.writeTextFile(metaPath, JSON.stringify(meta, null, 2))
+    if (FLYSMART_CACHE && FLYSMART_CACHE.libraryKey === cfgKey) {
+      FLYSMART_CACHE = { ...FLYSMART_CACHE, meta }
+    }
+    await dbg(ctx, '增量索引：已移除文档', { rel, oldChunks: removed.oldChunks }, true)
+  } finally {
+    FLYSMART_BUSY = false
+    setStatus({ state: 'idle', phase: '', currentFile: '', lastProgressAt: nowMs() })
   }
 }
 
@@ -1791,46 +1884,83 @@ async function incrementalIndexOne(ctx, relativePath, opts) {
     if (!meta.files || typeof meta.files !== 'object') meta.files = {}
     if (!meta.chunks || typeof meta.chunks !== 'object') meta.chunks = {}
 
-    if (Object.prototype.hasOwnProperty.call(meta.files, rel)) {
-      if (!forceRebuild) {
-        await dbg(ctx, '增量索引：已存在，跳过', { rel }, true)
+    const absPath = joinAbs(libraryRoot, rel)
+    if (typeof ctx.exists === 'function') {
+      const ok = await ctx.exists(absPath)
+      if (!ok) {
+        const removed = removeFileFromMeta(meta, rel)
+        if (removed.removed) {
+          await ctx.writeTextFile(metaPath, JSON.stringify(meta, null, 2))
+          FLYSMART_CACHE = { libraryKey: cfgKey, meta, vectors }
+          await dbg(ctx, '增量索引：文件不存在，已移除索引记录', { rel, oldChunks: removed.oldChunks }, true)
+        }
         return
       }
-      try {
-        const old = meta.files[rel] || {}
-        const oldChunkIds = Array.isArray(old.chunkIds) ? old.chunkIds : []
-        for (const id of oldChunkIds) {
-          try { delete meta.chunks[id] } catch {}
-        }
-        try { delete meta.files[rel] } catch {}
-        meta.updatedAt = Date.now()
-        await dbg(
-          ctx,
-          '重建文档索引：已清理旧记录',
-          { rel, oldChunks: oldChunkIds.length },
-          true,
-        )
-      } catch {}
     }
 
-    const absPath = joinAbs(libraryRoot, rel)
-    const text = await readTextBestEffort(ctx, absPath, 15000)
-    const maxFileChars = 5_000_000
-    if (String(text || '').length > maxFileChars) {
+    let text = ''
+    try {
+      text = await readTextBestEffort(ctx, absPath, 15000)
+    } catch (e) {
+      const removed = removeFileFromMeta(meta, rel)
+      if (removed.removed) {
+        await ctx.writeTextFile(metaPath, JSON.stringify(meta, null, 2))
+        FLYSMART_CACHE = { libraryKey: cfgKey, meta, vectors }
+      }
       await dbg(
         ctx,
-        '增量索引：跳过超大文件',
-        { rel, chars: String(text || '').length },
+        '增量索引：读取失败（已清理旧索引）',
+        { rel, oldChunks: removed.oldChunks, error: e && e.message ? String(e.message) : String(e) },
         true,
       )
       return
+    }
+
+    const maxFileChars = 5_000_000
+    if (String(text || '').length > maxFileChars) {
+      const removed = removeFileFromMeta(meta, rel)
+      meta.files[rel] = { mtimeMs: Date.now(), size: String(text || '').length, hash: '', chunkIds: [] }
+      meta.updatedAt = Date.now()
+      await ctx.writeTextFile(metaPath, JSON.stringify(meta, null, 2))
+      FLYSMART_CACHE = { libraryKey: cfgKey, meta, vectors }
+      await dbg(ctx, '增量索引：跳过超大文件（已清理旧索引）', { rel, chars: String(text || '').length, oldChunks: removed.oldChunks }, true)
+      return
+    }
+
+    let fp = { size: 0, hash: '' }
+    try {
+      fp = await computeTextFingerprint(text)
+    } catch {}
+    if (
+      !forceRebuild &&
+      Object.prototype.hasOwnProperty.call(meta.files, rel) &&
+      meta.files[rel] &&
+      typeof meta.files[rel] === 'object' &&
+      typeof meta.files[rel].hash === 'string' &&
+      meta.files[rel].hash &&
+      meta.files[rel].hash === fp.hash &&
+      typeof meta.files[rel].size === 'number' &&
+      meta.files[rel].size === fp.size
+    ) {
+      await dbg(ctx, '增量索引：内容未变化，跳过', { rel }, true)
+      return
+    }
+
+    if (Object.prototype.hasOwnProperty.call(meta.files, rel)) {
+      const removed = removeFileFromMeta(meta, rel)
+      await dbg(
+        ctx,
+        '重建文档索引：已清理旧记录',
+        { rel, oldChunks: removed.oldChunks },
+        true,
+      )
     }
 
     const lines = String(text || '').split(/\r?\n/)
     const parts = chunkByLines(lines, cfg.chunk)
     if (!parts.length) {
       await dbg(ctx, '增量索引：无可索引内容，跳过', { rel }, true)
-      meta.files[rel] = { mtimeMs: 0, chunkIds: [] }
+      meta.files[rel] = { mtimeMs: Date.now(), size: fp.size, hash: fp.hash, chunkIds: [] }
       meta.updatedAt = Date.now()
       await ctx.writeTextFile(metaPath, JSON.stringify(meta, null, 2))
       FLYSMART_CACHE = { libraryKey: cfgKey, meta, vectors }
@@ -1935,7 +2065,7 @@ async function incrementalIndexOne(ctx, relativePath, opts) {
         vectorOffset: oldLen + i * useDims,
       }
     }
-    meta.files[rel] = { mtimeMs: 0, chunkIds }
+    meta.files[rel] = { mtimeMs: Date.now(), size: fp.size, hash: fp.hash, chunkIds }
 
     await ctx.writeFileBinary(vecPath, new Uint8Array(newFlat.buffer))
     await ctx.writeTextFile(metaPath, JSON.stringify(meta, null, 2))
@@ -2991,8 +3121,8 @@ async function openSettingsDialog(settingsCtx) {
   const tipRebuildDoc = document.createElement('div')
   tipRebuildDoc.className = 'flysmart-tip'
   tipRebuildDoc.textContent = ragText(
-    '如果某个文档进行了修改，可以通过重建该文档索引来更新索引信息',
-    'If a document has been modified, you can rebuild its index here to refresh index data.',
+    '针对特定文档新建或重建索引',
+    'Create or rebuild index for a specific document.',
   )
   rowRebuildDocTop.appendChild(inputRebuildDoc)
   rowRebuildDocTop.appendChild(btnBrowseDoc)
