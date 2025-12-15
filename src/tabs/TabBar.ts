@@ -24,6 +24,7 @@ export class TabBar {
   private onBeforeClose?: (tab: TabDocument) => Promise<boolean>
   private tabsContainer: HTMLElement | null = null
   private unsubscribe: (() => void) | null = null
+  private suppressNextClick = false
 
   // 拖拽状态
   private draggedTabId: string | null = null
@@ -118,7 +119,7 @@ export class TabBar {
     const tabEl = document.createElement('div')
     tabEl.className = 'tabbar-tab' + (isActive ? ' active' : '') + (tab.dirty ? ' dirty' : '')
     tabEl.dataset.tabId = tab.id
-    tabEl.draggable = true
+    tabEl.draggable = false
 
     // 文件图标
     const icon = document.createElement('span')
@@ -154,6 +155,10 @@ export class TabBar {
 
     // 点击切换
     tabEl.addEventListener('click', () => {
+      if (this.suppressNextClick) {
+        this.suppressNextClick = false
+        return
+      }
       this.tabManager.switchToTab(tab.id)
     })
 
@@ -171,76 +176,137 @@ export class TabBar {
       this.showContextMenu(e.clientX, e.clientY, tab.id)
     })
 
-    // 拖拽事件
-    tabEl.addEventListener('dragstart', (e) => {
-      this.draggedTabId = tab.id
-      tabEl.classList.add('dragging')
-      if (e.dataTransfer) {
-        e.dataTransfer.effectAllowed = 'move'
-        e.dataTransfer.setData('text/plain', tab.id)
-      }
-    })
+    // 拖拽排序（使用鼠标事件实现，绕开 WebView2 原生 DnD 的🚫问题）
+    let dragState:
+      | {
+          startX: number
+          startY: number
+          isDragging: boolean
+          targetEl: HTMLElement | null
+          insertAfter: boolean
+        }
+      | null = null
 
-    tabEl.addEventListener('dragend', () => {
-      this.draggedTabId = null
+    const clearDragIndicators = () => {
+      if (!dragState?.targetEl) return
+      dragState.targetEl.classList.remove('drag-over-left', 'drag-over-right')
+      dragState.targetEl = null
+    }
+
+    const cleanupDrag = () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp, true)
       tabEl.classList.remove('dragging')
-      // 清除所有拖拽样式
-      this.tabsContainer?.querySelectorAll('.tabbar-tab').forEach(el => {
-        el.classList.remove('drag-over-left', 'drag-over-right')
-      })
-    })
+      clearDragIndicators()
+      this.draggedTabId = null
+      this.dragOverTabId = null
+      try { document.body.style.userSelect = '' } catch {}
+      try { document.body.style.cursor = '' } catch {}
+      dragState = null
+    }
 
-    tabEl.addEventListener('dragover', (e) => {
-      e.preventDefault()
-      if (!this.draggedTabId || this.draggedTabId === tab.id) return
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragState || !this.draggedTabId) return
 
-      const rect = tabEl.getBoundingClientRect()
-      const midX = rect.left + rect.width / 2
-
-      // 清除之前的样式
-      tabEl.classList.remove('drag-over-left', 'drag-over-right')
-
-      // 根据鼠标位置显示插入指示器
-      if (e.clientX < midX) {
-        tabEl.classList.add('drag-over-left')
-      } else {
-        tabEl.classList.add('drag-over-right')
+      if (!dragState.isDragging) {
+        const dx = e.clientX - dragState.startX
+        const dy = e.clientY - dragState.startY
+        if (Math.hypot(dx, dy) <= 5) return
+        dragState.isDragging = true
+        tabEl.classList.add('dragging')
+        try { document.body.style.userSelect = 'none' } catch {}
+        try { document.body.style.cursor = 'grabbing' } catch {}
       }
 
-      this.dragOverTabId = tab.id
-    })
+      // 允许拖到“新建标签按钮”上，作为“移动到最后”
+      const overNewBtn = (e.target as HTMLElement | null)?.closest?.('.tabbar-new-btn') as HTMLElement | null
+      if (overNewBtn) {
+        const list = Array.from(this.tabsContainer?.querySelectorAll('.tabbar-tab') || []) as HTMLElement[]
+        const last = list.length ? list[list.length - 1] : null
+        if (last && last !== tabEl) {
+          if (dragState.targetEl && dragState.targetEl !== last) {
+            dragState.targetEl.classList.remove('drag-over-left', 'drag-over-right')
+          }
+          dragState.targetEl = last
+          dragState.insertAfter = true
+          last.classList.remove('drag-over-left')
+          last.classList.add('drag-over-right')
+          this.dragOverTabId = last.dataset.tabId || null
+          return
+        }
+      }
 
-    tabEl.addEventListener('dragleave', () => {
-      tabEl.classList.remove('drag-over-left', 'drag-over-right')
-    })
+      const targetTab = (e.target as HTMLElement | null)?.closest?.('.tabbar-tab') as HTMLElement | null
+      if (!targetTab || targetTab === tabEl) {
+        clearDragIndicators()
+        return
+      }
+      if (this.tabsContainer && !this.tabsContainer.contains(targetTab)) {
+        clearDragIndicators()
+        return
+      }
 
-    tabEl.addEventListener('drop', (e) => {
-      e.preventDefault()
-      if (!this.draggedTabId || this.draggedTabId === tab.id) return
+      const rect = targetTab.getBoundingClientRect()
+      const insertAfter = e.clientX > rect.left + rect.width / 2
+
+      if (dragState.targetEl && dragState.targetEl !== targetTab) {
+        dragState.targetEl.classList.remove('drag-over-left', 'drag-over-right')
+      }
+      dragState.targetEl = targetTab
+      dragState.insertAfter = insertAfter
+
+      targetTab.classList.toggle('drag-over-left', !insertAfter)
+      targetTab.classList.toggle('drag-over-right', insertAfter)
+      this.dragOverTabId = targetTab.dataset.tabId || null
+    }
+
+    const handleMouseUp = () => {
+      if (!dragState) { cleanupDrag(); return }
+
+      const wasDragging = dragState.isDragging
+      const targetEl = dragState.targetEl
+      const insertAfter = dragState.insertAfter
+      const draggedId = this.draggedTabId
+
+      // 清理 UI/监听器（放在前面，避免 moveTab 触发重渲染后引用失效）
+      cleanupDrag()
+
+      if (!wasDragging) return
+      this.suppressNextClick = true
+
+      const targetId = targetEl?.dataset?.tabId || null
+      if (!draggedId || !targetId || draggedId === targetId) return
 
       const tabs = this.tabManager.getTabs()
-      const fromIndex = tabs.findIndex(t => t.id === this.draggedTabId)
-      let toIndex = tabs.findIndex(t => t.id === tab.id)
+      const fromIndex = tabs.findIndex((t) => t.id === draggedId)
+      const targetIndex = tabs.findIndex((t) => t.id === targetId)
+      if (fromIndex < 0 || targetIndex < 0) return
 
-      // 根据放置位置调整目标索引
-      const rect = tabEl.getBoundingClientRect()
-      const midX = rect.left + rect.width / 2
-      if (e.clientX > midX && fromIndex < toIndex) {
-        // 不需要调整
-      } else if (e.clientX <= midX && fromIndex > toIndex) {
-        // 不需要调整
-      } else if (e.clientX > midX) {
-        toIndex++
-      }
-
-      // 确保索引在有效范围内
+      const insertIndexOriginal = targetIndex + (insertAfter ? 1 : 0)
+      let toIndex = insertIndexOriginal
+      if (fromIndex < insertIndexOriginal) toIndex = insertIndexOriginal - 1
       toIndex = Math.max(0, Math.min(toIndex, tabs.length - 1))
 
       this.tabManager.moveTab(fromIndex, toIndex)
+    }
 
-      // 清除样式
-      tabEl.classList.remove('drag-over-left', 'drag-over-right')
-    })
+    tabEl.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return
+      // 点在关闭按钮上不启动拖拽，避免“想关结果开始拖”的糟糕体验
+      const t = e.target as HTMLElement | null
+      if (t && t.closest('.tabbar-tab-close')) return
+
+      this.draggedTabId = tab.id
+      dragState = {
+        startX: e.clientX,
+        startY: e.clientY,
+        isDragging: false,
+        targetEl: null,
+        insertAfter: false,
+      }
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp, true)
+    }, true)
 
     return tabEl
   }

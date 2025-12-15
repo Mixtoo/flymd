@@ -770,7 +770,9 @@ async function buildDir(root: string, dir: string, parent: HTMLElement) {
             prevIconDraggable = (iconEl as any).getAttribute?.('draggable') ?? null
             prevLabelDraggable = label.getAttribute('draggable')
             row.removeAttribute('draggable')
-            ;(iconEl as any).removeAttribute?.('draggable')
+            // 注意：<img> 默认 draggable=true，removeAttribute 会回到默认值，反而禁不掉；
+            // 这里必须显式设置为 false 才能阻止原生拖拽抢走 mousemove。
+            ;(iconEl as any).setAttribute?.('draggable', 'false')
             label.removeAttribute('draggable')
           } catch {}
           try { host.addEventListener('click', suppressClick, true) } catch {}
