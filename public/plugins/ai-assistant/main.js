@@ -16,6 +16,9 @@ const FREE_MODEL_OPTIONS = {
 }
 const DEFAULT_FREE_MODEL_KEY = 'qwen'
 
+// 默认上下文截断长度（按字符数裁剪文档尾部）
+const DEFAULT_MAX_CTX_CHARS = 128000
+
 const DEFAULT_CFG = {
   provider: 'free', // 默认使用免费模式
   baseUrl: 'https://api.siliconflow.cn/v1',
@@ -24,7 +27,7 @@ const DEFAULT_CFG = {
   visionEnabled: false, // 视觉模式（默认关闭）
   win: { x: 60, y: 60, w: 400, h: 440 },
   dock: 'left', // 'left'=左侧停靠；'right'=右侧停靠；'bottom'=底部停靠；false=浮动窗口
-  limits: { maxCtxChars: 6000 },
+  limits: { maxCtxChars: DEFAULT_MAX_CTX_CHARS },
   kb: { enabled: false, topK: 5, maxChars: 2000 }, // 知识库检索（RAG），默认关闭
   theme: 'auto',
   freeModel: DEFAULT_FREE_MODEL_KEY,
@@ -4075,7 +4078,7 @@ async function sendFromInputWithAction(context){
       await ensureSessionForDoc(context)
       const doc = String(context.getEditorValue() || '')
       const kbCfg = normalizeKbCfgForAi(cfg)
-      const baseLimit = Number(cfg.limits?.maxCtxChars || 6000)
+      const baseLimit = Number(cfg.limits?.maxCtxChars || DEFAULT_MAX_CTX_CHARS)
       // RAG 开启时给“知识库引用”留出空间，避免把上下文窗口撑爆
       const docLimit = kbCfg.enabled
         ? Math.max(1200, baseLimit - Math.min(4000, Number(kbCfg.maxChars || 2000)) - 600)
@@ -4348,7 +4351,7 @@ export async function openSettings(context){
     '  <div class="set-row custom-only"><label>API Key</label><input id="set-key" type="password" placeholder="sk-..."/></div>',
     '  <div class="set-row custom-only"><label>' + aiText('模型', 'Model') + '</label><input id="set-model" type="text" placeholder="gpt-4o-mini"/></div>',
     '  <div class="set-row"><label>' + aiText('侧栏宽度(px)', 'Sidebar width (px)') + '</label><input id="set-sidew" type="number" min="400" step="10" placeholder="400"/></div>',
-    '  <div class="set-row"><label>' + aiText('上下文截断', 'Context limit') + '</label><input id="set-max" type="number" min="1000" step="500" placeholder="6000"/></div>',
+    '  <div class="set-row"><label>' + aiText('上下文截断', 'Context limit') + '</label><input id="set-max" type="number" min="1000" step="500" placeholder="' + DEFAULT_MAX_CTX_CHARS + '"/></div>',
     '  <div class="set-row"><label>' + aiText('知识库(RAG)', 'Knowledge (RAG)') + '</label><label class="toggle-switch"><input type="checkbox" id="set-kb-enabled"/><span class="toggle-slider"></span></label></div>',
     '  <div class="set-row"><label>TopK</label><input id="set-kb-topk" type="number" min="1" max="20" step="1" placeholder="5"/></div>',
     '  <div class="set-row"><label>' + aiText('引用字数', 'Max chars') + '</label><input id="set-kb-maxchars" type="number" min="200" step="200" placeholder="2000"/></div>',
@@ -4392,7 +4395,7 @@ export async function openSettings(context){
   elBase.value = cfg.baseUrl || 'https://api.siliconflow.cn/v1'
   elKey.value = cfg.apiKey || ''
   elModel.value = cfg.model || 'gpt-4o-mini'
-  elMax.value = String((cfg.limits?.maxCtxChars) || 6000)
+  elMax.value = String((cfg.limits?.maxCtxChars) || DEFAULT_MAX_CTX_CHARS)
   elSideW.value = String((cfg.win?.w) || MIN_WIDTH)
   if (elKbEnabled) elKbEnabled.checked = !!(cfg.kb && cfg.kb.enabled)
   if (elKbTopK) elKbTopK.value = String((cfg.kb && cfg.kb.topK) || 5)
@@ -4466,7 +4469,7 @@ export async function openSettings(context){
     const baseUrl = String(elBase.value || '').trim() || 'https://api.siliconflow.cn/v1'
     const apiKey = String(elKey.value || '').trim()
     const model = String(elModel.value || '').trim() || 'gpt-4o-mini'
-    const n = Math.max(1000, parseInt(String(elMax.value || '6000'),10) || 6000)
+    const n = Math.max(1000, parseInt(String(elMax.value || DEFAULT_MAX_CTX_CHARS),10) || DEFAULT_MAX_CTX_CHARS)
     const sidew = Math.max(MIN_WIDTH, parseInt(String(elSideW.value || MIN_WIDTH),10) || MIN_WIDTH)
     const kbEnabled = !!(elKbEnabled && elKbEnabled.checked)
     const kbTopK = Math.max(1, Math.min(20, parseInt(String((elKbTopK && elKbTopK.value) || '5'), 10) || 5))
