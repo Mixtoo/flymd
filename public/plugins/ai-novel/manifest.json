@@ -1,0 +1,15 @@
+{
+  "id": "ai-novel",
+  "name": "AI 小说引擎",
+  "version": "0.1.0",
+  "author": "flyMD",
+  "description": "长篇小说写作：（内测中/非内测人员安装无用/）。",
+  "i18n": {
+    "en": {
+      "name": "AI Novel Engine",
+      "description": "Long-form novel writing with mandatory backend pipeline (choices/write/audit/char billing/recharge cards)."
+    }
+  },
+  "homepage": "https://github.com/flyhunterl/flymd",
+  "main": "main.js"
+}
