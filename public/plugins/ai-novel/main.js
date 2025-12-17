@@ -312,6 +312,145 @@ function sliceHeadTail(s, maxChars, headRatio) {
   return head + sep + tail
 }
 
+function _ainEscapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function _ainDiffNormEol(s) {
+  return String(s || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+}
+
+function _ainDiffIsBreakChar(ch) {
+  // 粗粒度分块：避免 3000 字全文逐字符 diff 把浏览器搞到卡死
+  return ch === '\n' || ch === '。' || ch === '！' || ch === '？' || ch === '!' || ch === '?' || ch === '；' || ch === ';' || ch === '…'
+}
+
+function _ainDiffTokenize(text, maxChunkLen) {
+  const s = _ainDiffNormEol(text)
+  const maxLen = Math.max(20, (maxChunkLen | 0) || 80)
+  const out = []
+  let buf = ''
+  let lastBreak = -1
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    buf += ch
+    if (ch === '\n') {
+      out.push(buf)
+      buf = ''
+      lastBreak = -1
+      continue
+    }
+    if (_ainDiffIsBreakChar(ch)) lastBreak = buf.length
+    if (buf.length >= maxLen) {
+      if (lastBreak > 0 && lastBreak < buf.length) {
+        out.push(buf.slice(0, lastBreak))
+        buf = buf.slice(lastBreak)
+      } else {
+        out.push(buf)
+        buf = ''
+      }
+      lastBreak = -1
+    }
+  }
+  if (buf) out.push(buf)
+  return out
+}
+
+function _ainDiffLcsOps(aTokens, bTokens) {
+  const a = Array.isArray(aTokens) ? aTokens : []
+  const b = Array.isArray(bTokens) ? bTokens : []
+  const n = a.length
+  const m = b.length
+  const cols = m + 1
+  const dp = new Uint16Array((n + 1) * (m + 1))
+
+  for (let i = 1; i <= n; i++) {
+    const ai = a[i - 1]
+    for (let j = 1; j <= m; j++) {
+      const idx = i * cols + j
+      if (ai === b[j - 1]) {
+        dp[idx] = (dp[(i - 1) * cols + (j - 1)] + 1) | 0
+      } else {
+        const up = dp[(i - 1) * cols + j]
+        const left = dp[i * cols + (j - 1)]
+        dp[idx] = up >= left ? up : left
+      }
+    }
+  }
+
+  const ops = []
+  let i = n
+  let j = m
+  while (i > 0 && j > 0) {
+    if (a[i - 1] === b[j - 1]) {
+      ops.push({ t: 'eq', s: a[i - 1] })
+      i--
+      j--
+      continue
+    }
+    const up = dp[(i - 1) * cols + j]
+    const left = dp[i * cols + (j - 1)]
+    if (up >= left) {
+      ops.push({ t: 'del', s: a[i - 1] })
+      i--
+    } else {
+      ops.push({ t: 'ins', s: b[j - 1] })
+      j--
+    }
+  }
+  while (i > 0) {
+    ops.push({ t: 'del', s: a[i - 1] })
+    i--
+  }
+  while (j > 0) {
+    ops.push({ t: 'ins', s: b[j - 1] })
+    j--
+  }
+  ops.reverse()
+  return ops
+}
+
+function _ainDiffStats(ops) {
+  const arr = Array.isArray(ops) ? ops : []
+  let insChars = 0
+  let delChars = 0
+  let insSegs = 0
+  let delSegs = 0
+  for (let i = 0; i < arr.length; i++) {
+    const it = arr[i]
+    const t0 = it && it.t ? String(it.t) : ''
+    const s0 = safeText(it && it.s)
+    if (t0 === 'ins') {
+      insSegs++
+      insChars += s0.length
+    } else if (t0 === 'del') {
+      delSegs++
+      delChars += s0.length
+    }
+  }
+  return { insChars, delChars, insSegs, delSegs }
+}
+
+function _ainDiffRenderHtml(ops, mode) {
+  const arr = Array.isArray(ops) ? ops : []
+  const m = String(mode || 'new')
+  let html = ''
+  for (let i = 0; i < arr.length; i++) {
+    const it = arr[i] || {}
+    const t0 = String(it.t || '')
+    const s0 = _ainEscapeHtml(it.s)
+    if (t0 === 'eq') html += s0
+    else if (t0 === 'ins') html += `<mark>${s0}</mark>`
+    else if (t0 === 'del' && m === 'combined') html += `<del>${s0}</del>`
+  }
+  return html
+}
+
 function normFsPath(p) {
   return String(p || '').replace(/\\/g, '/')
 }
@@ -509,6 +648,25 @@ async function getPrevTextForRequest(ctx, cfg) {
   const prevChap = await getPrevChapterTailText(ctx, cfg, lim)
   if (safeText(prevChap).trim()) return prevChap
   return tail
+}
+
+async function getPrevTextForRevise(ctx, cfg, baseText) {
+  // 修订草稿时，“前文尾部”更应该优先取上一章；
+  // 否则当前文档尾部往往就是草稿本身，会把待修订文本重复塞两遍，既浪费预算也容易让模型复读。
+  try {
+    const lim = cfg && cfg.ctx && cfg.ctx.maxPrevChars ? (cfg.ctx.maxPrevChars | 0) : 8000
+    const prevChap = await getPrevChapterTailText(ctx, cfg, lim)
+    if (safeText(prevChap).trim()) return prevChap
+
+    const doc = String(ctx && ctx.getEditorValue ? (ctx.getEditorValue() || '') : '')
+    const tail = sliceTail(doc, lim)
+    const keyLen = Math.min(800, Math.max(200, ((lim / 10) | 0)))
+    const key = sliceTail(String(baseText || ''), keyLen).trim()
+    if (key && tail.includes(key)) return ''
+    return tail
+  } catch {
+    return ''
+  }
 }
 
 async function inferProjectDir(ctx, cfg) {
@@ -1322,6 +1480,9 @@ function ensureDialogStyle() {
 .ain-in{width:100%;padding:10px;border-radius:8px;border:1px solid #334155;background:#0b0f19;color:#e6e6e6;box-sizing:border-box}
 .ain-ta{width:100%;min-height:120px;padding:10px;border-radius:8px;border:1px solid #334155;background:#0b0f19;color:#e6e6e6;box-sizing:border-box;resize:vertical}
 .ain-out{white-space:pre-wrap;background:#0b0f19;border:1px solid #243041;border-radius:8px;padding:10px;min-height:120px}
+.ain-diff{white-space:pre-wrap;background:#0b0f19;border:1px solid #243041;border-radius:8px;padding:10px;min-height:120px}
+.ain-diff mark{background:rgba(34,197,94,.22);color:#e6e6e6;padding:0 2px;border-radius:3px}
+.ain-diff del{background:rgba(239,68,68,.18);color:#fecaca;text-decoration:line-through;padding:0 2px;border-radius:3px}
 .ain-opt{border:1px solid #243041;background:#0b0f19;border-radius:10px;padding:10px;margin:8px 0;cursor:pointer}
 .ain-opt:hover{border-color:#334155}
 .ain-opt.sel{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.25) inset}
@@ -5149,7 +5310,7 @@ async function callNovelRevise(ctx, cfg, baseText, instruction, localConstraints
   if (!inst) throw new Error(t('请先写清楚“修改要求”', 'Please provide edit request'))
 
   const text = safeText(baseText)
-  const prev = await getPrevTextForRequest(ctx, cfg)
+  const prev = await getPrevTextForRevise(ctx, cfg, text)
   const progress = await getProgressDocText(ctx, cfg)
   const bible = await getBibleDocText(ctx, cfg)
   const constraints = mergeConstraints(cfg, localConstraints)
@@ -5179,7 +5340,27 @@ async function callNovelRevise(ctx, cfg, baseText, instruction, localConstraints
       rag: rag || undefined
     }
   })
-  return json
+
+  const ctxMeta = (() => {
+    try {
+      const ragHits = Array.isArray(rag) ? rag.length : (rag ? 1 : 0)
+      const ragChars = Array.isArray(rag)
+        ? rag.reduce((a, it) => a + safeText(it && (it.text != null ? it.text : it)).length, 0)
+        : safeText(rag).length
+      return {
+        progressChars: safeText(progress).length,
+        bibleChars: safeText(bible).length,
+        prevChars: safeText(prev).length,
+        constraintsChars: safeText(constraints).length,
+        ragHits,
+        ragChars
+      }
+    } catch {
+      return null
+    }
+  })()
+
+  return { json, ctxMeta }
 }
 
 async function openDraftReviewDialog(ctx, opts) {
@@ -5203,6 +5384,50 @@ async function openDraftReviewDialog(ctx, opts) {
   const taText = mkTextarea('', initialText)
   taText.ta.style.minHeight = '220px'
   sec.appendChild(taText.wrap)
+
+  const secDiff = document.createElement('div')
+  secDiff.className = 'ain-card'
+  secDiff.innerHTML = `<div style="font-weight:700;margin-bottom:6px">${t('修改高亮预览', 'Highlight changes')}</div>`
+
+  const diffMeta = document.createElement('div')
+  diffMeta.className = 'ain-muted'
+  diffMeta.textContent = t('发送修改请求后，这里会高亮显示本次改动（绿色为新增；可选显示删除）。', 'After sending, changes will be highlighted here (green=inserted; optionally show deletions).')
+  secDiff.appendChild(diffMeta)
+
+  const diffTools = document.createElement('div')
+  diffTools.style.marginTop = '8px'
+  diffTools.style.display = 'flex'
+  diffTools.style.gap = '12px'
+  diffTools.style.alignItems = 'center'
+
+  const labShowDel = document.createElement('label')
+  labShowDel.className = 'ain-muted'
+  labShowDel.style.display = 'flex'
+  labShowDel.style.gap = '6px'
+  labShowDel.style.alignItems = 'center'
+  labShowDel.style.cursor = 'pointer'
+  labShowDel.style.userSelect = 'none'
+  const chkShowDel = document.createElement('input')
+  chkShowDel.type = 'checkbox'
+  const spShowDel = document.createElement('span')
+  spShowDel.textContent = t('显示删除', 'Show deletions')
+  labShowDel.appendChild(chkShowDel)
+  labShowDel.appendChild(spShowDel)
+  diffTools.appendChild(labShowDel)
+
+  const btnRecalc = document.createElement('button')
+  btnRecalc.className = 'ain-btn gray'
+  btnRecalc.textContent = t('重新计算高亮', 'Recompute highlight')
+  btnRecalc.disabled = true
+  diffTools.appendChild(btnRecalc)
+
+  secDiff.appendChild(diffTools)
+
+  const diffOut = document.createElement('div')
+  diffOut.className = 'ain-diff'
+  diffOut.style.marginTop = '10px'
+  diffOut.textContent = t('暂无对比结果：先发送一次修改请求。', 'No diff yet: send an edit request first.')
+  secDiff.appendChild(diffOut)
 
   const secChat = document.createElement('div')
   secChat.className = 'ain-card'
@@ -5236,9 +5461,75 @@ async function openDraftReviewDialog(ctx, opts) {
   secChat.appendChild(row)
 
   body.appendChild(sec)
+  body.appendChild(secDiff)
   body.appendChild(secChat)
 
   const history = []
+
+  let lastDiff = null
+  let lastDiffBase = ''
+
+  function renderDiff() {
+    try {
+      if (!lastDiff || !lastDiff.ops || !Array.isArray(lastDiff.ops)) {
+        diffOut.textContent = t('暂无对比结果：先发送一次修改请求。', 'No diff yet: send an edit request first.')
+        diffMeta.textContent = t('发送修改请求后，这里会高亮显示本次改动（绿色为新增；可选显示删除）。', 'After sending, changes will be highlighted here (green=inserted; optionally show deletions).')
+        btnRecalc.disabled = true
+        return
+      }
+
+      const st = lastDiff.stats || _ainDiffStats(lastDiff.ops)
+      const ins = st && Number.isFinite(st.insChars) ? st.insChars : 0
+      const del = st && Number.isFinite(st.delChars) ? st.delChars : 0
+      const chg = ins + del
+
+      const ctxm = lastDiff.ctxMeta || null
+      let ctxText = ''
+      if (ctxm && typeof ctxm === 'object') {
+        ctxText =
+          t('上下文：进度 ', 'Context: progress ') +
+          String(ctxm.progressChars | 0) +
+          t(' 字，设定 ', ' chars, bible ') +
+          String(ctxm.bibleChars | 0) +
+          t(' 字，检索 ', ' chars, rag ') +
+          String(ctxm.ragHits | 0) +
+          t(' 条', ' hits')
+      }
+
+      const metaText = chg <= 0
+        ? t('本次无改动。', 'No changes.')
+        : (t('本次改动：新增 ', 'Changes: +') + String(ins) + t(' 字，删除 ', ' chars, -') + String(del) + t(' 字。', ' chars.'))
+      diffMeta.textContent = ctxText ? (metaText + ' ' + ctxText) : metaText
+
+      const mode = chkShowDel.checked ? 'combined' : 'new'
+      diffOut.innerHTML = _ainDiffRenderHtml(lastDiff.ops, mode)
+      btnRecalc.disabled = false
+    } catch {
+      diffOut.textContent = t('对比渲染失败（文本过大或浏览器不支持）。', 'Diff render failed (too large or unsupported).')
+    }
+  }
+
+  function updateDiff(baseText, nextText, ctxMeta) {
+    const base = safeText(baseText)
+    const next = safeText(nextText)
+    lastDiffBase = base
+    const chunkLen = Math.max(40, Math.min(160, Math.round(Math.max(base.length, next.length) / 80) || 80))
+    const ops = _ainDiffLcsOps(_ainDiffTokenize(base, chunkLen), _ainDiffTokenize(next, chunkLen))
+    lastDiff = { base, next, ops, stats: _ainDiffStats(ops), ctxMeta: ctxMeta || null }
+    renderDiff()
+    return lastDiff.stats
+  }
+
+  chkShowDel.onchange = () => renderDiff()
+  btnRecalc.onclick = () => {
+    try {
+      const cur = safeText(taText.ta.value)
+      updateDiff(lastDiffBase, cur, lastDiff && lastDiff.ctxMeta ? lastDiff.ctxMeta : null)
+      ctx.ui.notice(t('已刷新高亮', 'Highlight refreshed'), 'ok', 1200)
+    } catch {
+      ctx.ui.notice(t('刷新失败', 'Refresh failed'), 'err', 1800)
+    }
+  }
 
   function renderLog() {
     if (!history.length) {
@@ -5250,9 +5541,16 @@ async function openDraftReviewDialog(ctx, opts) {
     for (let i = 0; i < take.length; i++) {
       const it = take[i] || {}
       const u = safeText(it.user).trim()
-      const a = safeText(it.assistant).trim()
+      const st = it.stats && typeof it.stats === 'object' ? it.stats : null
       if (u) lines.push('用户：' + u)
-      if (a) lines.push('AI：' + a)
+      if (st) {
+        const ins = Number.isFinite(st.insChars) ? (st.insChars | 0) : 0
+        const del = Number.isFinite(st.delChars) ? (st.delChars | 0) : 0
+        const msg = (ins + del) <= 0
+          ? t('AI：未改动（返回与原文一致）', 'AI: no changes (identical)')
+          : (t('AI：已修订（新增 ', 'AI: revised (+') + String(ins) + t(' 字，删除 ', ' chars, -') + String(del) + t(' 字）', ' chars)'))
+        lines.push(msg)
+      }
       lines.push('')
     }
     log.textContent = lines.join('\n').trim()
@@ -5269,15 +5567,25 @@ async function openDraftReviewDialog(ctx, opts) {
       const curText = safeText(taText.ta.value)
       setBusy(btnSend, true)
       outBusy()
-      const hist = history.slice(-10).map((x) => ({ user: x.user, assistant: x.assistant }))
-      const json = await callNovelRevise(ctx, cfg, curText, ask, safeText(taCons.ta.value).trim(), hist)
+      // 只带“用户修改要求”历史：草稿正文已经在 curText 里，再把 AI 全文塞进历史只会重复、膨胀、降低命中率。
+      const hist = history.slice(-10).map((x) => ({ user: x.user, assistant: '' }))
+      const res = await callNovelRevise(ctx, cfg, curText, ask, safeText(taCons.ta.value).trim(), hist)
+      const json = res && res.json ? res.json : res
       const next = safeText(json && json.text).trim()
       if (!next) throw new Error(t('后端未返回正文', 'Backend returned empty text'))
       taText.ta.value = next
-      history.push({ user: ask, assistant: next })
+      const st = updateDiff(curText, next, res && res.ctxMeta ? res.ctxMeta : null)
+      history.push({ user: ask, assistant: '', stats: st, ctxMeta: res && res.ctxMeta ? res.ctxMeta : null })
       taAsk.ta.value = ''
       renderLog()
-      ctx.ui.notice(t('已生成修订版本（未写入）', 'Revised (not written)'), 'ok', 1600)
+
+      const noChange = st && (st.insChars | 0) === 0 && (st.delChars | 0) === 0
+      if (btnApply) btnApply.className = noChange ? 'ain-btn gray' : 'ain-btn'
+      if (noChange) {
+        ctx.ui.notice(t('AI 返回与发送前一致：把“修改要求”写得更具体。', 'AI returned identical text: be more specific.'), 'err', 2400)
+      } else {
+        ctx.ui.notice(t('已生成修订版本（未写入）：点“覆盖草稿块”写回。', 'Revised (not written): click Overwrite draft block.'), 'ok', 2400)
+      }
     } catch (e) {
       ctx.ui.notice(t('失败：', 'Failed: ') + (e && e.message ? e.message : String(e)), 'err', 2400)
     } finally {
