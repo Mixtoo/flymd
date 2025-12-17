@@ -91,6 +91,18 @@
       }
     },
     {
+      "homepage": "https://github.com/gerrampard/dinox-sync",
+      "name": "Dinox 同步",
+      "description": "将 flyMD 文档同步到 Dinox 笔记软件",
+      "author": "saimax",
+      "id": "dinox-sync",
+      "category": "发布/同步",
+      "install": {
+        "ref": "https://raw.githubusercontent.com/gerrampard/dinox-sync/main/manifest.json",
+        "type": "manifest"
+      }
+    },
+    {
       "homepage": "https://github.com/flyhunterl/flymd",
       "name": "Markdown 表格助手",
       "description": "在光标处快速插入 Markdown 表格",
