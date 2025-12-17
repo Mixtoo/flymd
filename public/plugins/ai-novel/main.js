@@ -257,6 +257,41 @@ async function apiFetchConsultWithJob(ctx, cfg, body, opt) {
   }
 }
 
+async function apiFetchChatWithJob(ctx, cfg, body, opt) {
+  const onTick = opt && typeof opt.onTick === 'function' ? opt.onTick : null
+  const timeoutMs = opt && opt.timeoutMs ? Number(opt.timeoutMs) : 190000
+
+  const b = body && typeof body === 'object' ? body : {}
+  const input = (b.input && typeof b.input === 'object') ? b.input : {}
+  const body2 = { ...b, input: { ...input, async: true, mode: 'job' } }
+
+  const first = await apiFetch(ctx, cfg, 'ai/proxy/chat/', body2)
+  const jobId = first && (first.job_id || first.jobId)
+  // 兼容旧后端：不支持 job 时会直接返回 {text,...}
+  if (!jobId) return first
+
+  const start = Date.now()
+  let waitMs = 0
+  for (;;) {
+    waitMs = Date.now() - start
+    if (waitMs > timeoutMs) {
+      throw new Error(t('审计超时：任务仍未完成，请稍后重试或换模型', 'Audit timeout: job still pending, please retry or switch model'))
+    }
+
+    if (onTick) {
+      try { onTick({ jobId, waitMs }) } catch {}
+    }
+
+    await sleep(1000)
+    const st = await apiGet(ctx, cfg, 'ai/proxy/chat/status/?id=' + encodeURIComponent(String(jobId)))
+    const s = st && st.status ? String(st.status) : ''
+    if (s === 'pending') continue
+    if (s === 'error') throw new Error(String(st.error || '任务失败'))
+    if (s === 'ok' && st.result && typeof st.result === 'object') return st.result
+    throw new Error(t('任务状态异常', 'Invalid job status'))
+  }
+}
+
 function sliceTail(s, maxChars) {
   const str = String(s || '')
   const m = Math.max(0, maxChars | 0)
@@ -3683,6 +3718,296 @@ async function openConsultDialog(ctx) {
   }
 }
 
+async function openAuditDialog(ctx) {
+  let cfg = await loadCfg(ctx)
+  if (!cfg.token) throw new Error(t('请先登录后端', 'Please login first'))
+
+  const AUDIT_FILE = '06_一致性审计.md'
+  const AUDIT_TIMEOUT_MS = 190000
+
+  async function runAuditOnce(text) {
+    const inputText = safeText(text).trim()
+    if (!inputText) {
+      throw new Error(t('没有可用文本：请先选中一段正文，或确保当前文档有内容。', 'No text: select some content or ensure the document is not empty.'))
+    }
+    const progress = await getProgressDocText(ctx, cfg)
+    const bible = await getBibleDocText(ctx, cfg)
+    const prev = await getPrevTextForRequest(ctx, cfg)
+    const constraints = mergeConstraints(cfg, '')
+    let rag = null
+    try {
+      rag = await rag_get_hits(ctx, cfg, inputText + '\n\n' + sliceTail(prev, 2000))
+    } catch {}
+    const json = await apiFetchChatWithJob(ctx, cfg, {
+      mode: 'novel',
+      action: 'audit',
+      upstream: {
+        baseUrl: cfg.upstream.baseUrl,
+        apiKey: cfg.upstream.apiKey,
+        model: cfg.upstream.model
+      },
+      input: { text: inputText, progress, bible, prev, constraints: constraints || undefined, rag: rag || undefined }
+    }, {
+      timeoutMs: AUDIT_TIMEOUT_MS,
+    })
+    const out = safeText(json && json.text).trim()
+    if (!out) throw new Error(t('后端未返回审计结果', 'Backend returned empty audit'))
+    return out
+  }
+
+  async function runAuditWithTimeout(text, opt) {
+    const timeoutMs = opt && opt.timeoutMs != null ? Math.max(1000, Number(opt.timeoutMs) || 0) : AUDIT_TIMEOUT_MS
+    const onTick = opt && typeof opt.onTick === 'function' ? opt.onTick : null
+    const start = Date.now()
+    let timer = null
+    if (onTick) {
+      timer = setInterval(() => {
+        try { onTick({ waitMs: Date.now() - start }) } catch {}
+      }, 1000)
+    }
+    try {
+      return await Promise.race([
+        runAuditOnce(text),
+        sleep(timeoutMs).then(() => {
+          throw new Error(t('审计超时：后端长时间无响应，请重试或换模型', 'Audit timeout: backend not responding, please retry or switch model'))
+        })
+      ])
+    } finally {
+      if (timer) clearInterval(timer)
+    }
+  }
+
+  // 无窗口环境（极少见）：降级为“直接审计并追加到文末”
+  if (typeof document === 'undefined' || typeof window === 'undefined' || !document.body) {
+    const sel = ctx && ctx.getSelection ? ctx.getSelection() : null
+    const raw = sel && sel.text ? String(sel.text) : safeText(ctx && ctx.getEditorValue ? ctx.getEditorValue() : '')
+    const out = await runAuditWithTimeout(raw)
+    appendToDoc(ctx, out)
+    ctx.ui.notice(t('已把审计结果追加到文末', 'Audit appended'), 'ok', 2200)
+    return
+  }
+
+  const { body } = createDialogShell(t('一致性审计', 'Audit'))
+
+  const sec = document.createElement('div')
+  sec.className = 'ain-card'
+  sec.innerHTML = `<div style="font-weight:700;margin-bottom:6px">${t('对当前选区/文档做一致性检查（结合进度脉络与资料文件）', 'Check consistency against progress/meta files')}</div>`
+
+  const tip = document.createElement('div')
+  tip.className = 'ain-muted'
+  tip.textContent = t(
+    '默认会在审计完成后把结果追加到文末（兼容旧行为）；你也可以把结果写入项目内审计文件。',
+    'By default it will append the result to document end (compat mode); you can also write to a project audit file.'
+  )
+  sec.appendChild(tip)
+
+  const rowOpt = document.createElement('div')
+  rowOpt.style.display = 'flex'
+  rowOpt.style.flexWrap = 'wrap'
+  rowOpt.style.gap = '14px'
+  rowOpt.style.marginTop = '10px'
+
+  function mkCheck(label, checked) {
+    const wrap = document.createElement('label')
+    wrap.style.display = 'inline-flex'
+    wrap.style.alignItems = 'center'
+    wrap.style.gap = '8px'
+    const cb = document.createElement('input')
+    cb.type = 'checkbox'
+    cb.checked = !!checked
+    const tx = document.createElement('span')
+    tx.className = 'ain-muted'
+    tx.textContent = label
+    wrap.appendChild(cb)
+    wrap.appendChild(tx)
+    return { wrap, cb }
+  }
+
+  const sel0 = ctx && ctx.getSelection ? ctx.getSelection() : null
+  const hasSel0 = !!(sel0 && sel0.text && String(sel0.text).trim())
+  const cSelOnly = mkCheck(t('仅审计选区（无选区则退化为全文）', 'Only selection (fallback to full text)'), hasSel0)
+  const cAutoAppend = mkCheck(t('审计完成后自动追加到文末', 'Auto append to document'), false)
+  rowOpt.appendChild(cSelOnly.wrap)
+  rowOpt.appendChild(cAutoAppend.wrap)
+  sec.appendChild(rowOpt)
+
+  const fileHint = document.createElement('div')
+  fileHint.className = 'ain-muted'
+  fileHint.style.marginTop = '8px'
+  fileHint.textContent = t(
+    `写入审计文件：将追加到项目目录下的 ${AUDIT_FILE}（需要能推断当前项目）`,
+    `Audit file: will append into ${AUDIT_FILE} under project folder (project must be inferable)`
+  )
+  sec.appendChild(fileHint)
+
+  const out = document.createElement('div')
+  out.className = 'ain-out'
+  out.style.marginTop = '10px'
+  out.textContent = t('点击“开始审计”后，结果会显示在这里。', 'Click "Run audit" to show the result here.')
+  sec.appendChild(out)
+
+  const rowBtn = mkBtnRow()
+  const btnAudit = document.createElement('button')
+  btnAudit.className = 'ain-btn'
+  btnAudit.textContent = t('开始审计', 'Run audit')
+
+  const btnAppend = document.createElement('button')
+  btnAppend.className = 'ain-btn gray'
+  btnAppend.style.marginLeft = '8px'
+  btnAppend.textContent = t('追加到文末', 'Append to doc')
+  btnAppend.disabled = true
+
+  const btnWrite = document.createElement('button')
+  btnWrite.className = 'ain-btn gray'
+  btnWrite.style.marginLeft = '8px'
+  btnWrite.textContent = t('写入审计文件', 'Write audit file')
+  btnWrite.disabled = true
+
+  const btnOpen = document.createElement('button')
+  btnOpen.className = 'ain-btn gray'
+  btnOpen.style.marginLeft = '8px'
+  btnOpen.textContent = t('打开审计文件', 'Open audit file')
+  btnOpen.disabled = true
+
+  rowBtn.appendChild(btnAudit)
+  rowBtn.appendChild(btnAppend)
+  rowBtn.appendChild(btnWrite)
+  rowBtn.appendChild(btnOpen)
+  sec.appendChild(rowBtn)
+
+  body.appendChild(sec)
+
+  let lastAudit = ''
+  let lastInput = ''
+  let lastSource = ''
+  let lastAuditFilePath = ''
+
+  function pickInputText() {
+    const sel = ctx && ctx.getSelection ? ctx.getSelection() : null
+    const selText = sel && sel.text ? String(sel.text) : ''
+    const docText = safeText(ctx && ctx.getEditorValue ? ctx.getEditorValue() : '')
+
+    if (cSelOnly.cb.checked && selText.trim()) {
+      lastSource = t('选区', 'Selection')
+      return selText
+    }
+    lastSource = t('全文', 'Full document')
+    return docText.trim() ? docText : selText
+  }
+
+  async function doAudit() {
+    cfg = await loadCfg(ctx)
+    const raw = pickInputText()
+    const text = safeText(raw).trim()
+    lastInput = text
+    if (!text) {
+      out.textContent = t('没有可用文本：请先选中一段正文，或确保当前文档有内容。', 'No text: select some content or ensure the document is not empty.')
+      ctx.ui.notice(t('没有可用文本', 'No text'), 'err', 2200)
+      return
+    }
+
+    setBusy(btnAudit, true)
+    btnAppend.disabled = true
+    btnWrite.disabled = true
+    btnOpen.disabled = true
+    lastAudit = ''
+    out.textContent = t('审计中…', 'Auditing...')
+
+    try {
+      const res = await runAuditWithTimeout(text, {
+        onTick: ({ waitMs }) => {
+          const s = Math.max(0, Math.round(waitMs / 1000))
+          out.textContent = t('审计中… 已等待 ', 'Auditing... waited ') + s + 's'
+        }
+      })
+      lastAudit = res
+      out.textContent = res
+      btnAppend.disabled = false
+      btnWrite.disabled = false
+      ctx.ui.notice(t('已返回审计结果', 'Audit returned'), 'ok', 1600)
+
+      if (cAutoAppend.cb.checked) {
+        try {
+          appendToDoc(ctx, res)
+          ctx.ui.notice(t('已把审计结果追加到文末', 'Audit appended'), 'ok', 1800)
+        } catch (e) {
+          ctx.ui.notice(t('追加失败：', 'Append failed: ') + (e && e.message ? e.message : String(e)), 'err', 2600)
+        }
+      }
+    } catch (e) {
+      out.textContent = t('失败：', 'Failed: ') + (e && e.message ? e.message : String(e))
+    } finally {
+      setBusy(btnAudit, false)
+    }
+  }
+
+  btnAudit.onclick = () => { doAudit().catch(() => {}) }
+  btnAppend.onclick = () => {
+    try {
+      if (!lastAudit) return
+      appendToDoc(ctx, lastAudit)
+      ctx.ui.notice(t('已追加到文末', 'Appended'), 'ok', 1600)
+    } catch (e) {
+      ctx.ui.notice(t('追加失败：', 'Append failed: ') + (e && e.message ? e.message : String(e)), 'err', 2600)
+    }
+  }
+
+  btnWrite.onclick = async () => {
+    try {
+      if (!lastAudit) return
+      cfg = await loadCfg(ctx)
+      const inf = await inferProjectDir(ctx, cfg)
+      if (!inf) {
+        throw new Error(t('无法推断当前项目：请先在“项目管理”选择项目，或打开项目内任意文件。', 'Cannot infer project: select one in Project Manager, or open a file under the project folder.'))
+      }
+
+      const p = joinFsPath(inf.projectAbs, AUDIT_FILE)
+      const exists = await fileExists(ctx, p)
+      const old = exists ? safeText(await readTextAny(ctx, p)) : ''
+      const oldTrim = safeText(old).trim()
+
+      let sha = ''
+      try { sha = await sha256Hex(lastInput) } catch {}
+
+      const header = oldTrim ? '' : (t('# 一致性审计\n\n', '# Audit\n\n'))
+      const block =
+        `## ${_fmtLocalTs()}\n\n` +
+        `- ${t('来源', 'Source')}: ${lastSource || t('未知', 'Unknown')}\n` +
+        `- ${t('字符数', 'Chars')}: ${String(lastInput.length)}\n` +
+        (sha ? (`- ${t('输入 sha256', 'Input sha256')}: ${sha}\n`) : '') +
+        `\n` +
+        safeText(lastAudit).trim() +
+        `\n`
+
+      const next = (header || '') + (oldTrim ? (oldTrim + '\n\n') : '') + block
+      await writeTextAny(ctx, p, next)
+      lastAuditFilePath = p
+      btnOpen.disabled = false
+      ctx.ui.notice(t('已写入审计文件：', 'Wrote audit file: ') + fsBaseName(p), 'ok', 2200)
+    } catch (e) {
+      ctx.ui.notice(t('写入失败：', 'Write failed: ') + (e && e.message ? e.message : String(e)), 'err', 2600)
+    }
+  }
+
+  btnOpen.onclick = async () => {
+    try {
+      cfg = await loadCfg(ctx)
+      const inf = await inferProjectDir(ctx, cfg)
+      if (!inf) throw new Error(t('无法推断当前项目', 'Cannot infer project'))
+      const p = lastAuditFilePath || joinFsPath(inf.projectAbs, AUDIT_FILE)
+      if (!(await fileExists(ctx, p))) throw new Error(t('审计文件不存在：请先写入一次。', 'Audit file does not exist: write it first.'))
+      if (typeof ctx.openFileByPath === 'function') {
+        await ctx.openFileByPath(p)
+        return
+      }
+      throw new Error(t('当前环境不支持打开文件：', 'openFileByPath not available: ') + p)
+    } catch (e) {
+      ctx.ui.notice(t('打开失败：', 'Open failed: ') + (e && e.message ? e.message : String(e)), 'err', 2600)
+    }
+  }
+
+}
+
 async function openMetaUpdateDialog(ctx) {
   let cfg = await loadCfg(ctx)
   if (!cfg.token) throw new Error(t('请先登录后端', 'Please login first'))
@@ -5146,31 +5471,7 @@ export function activate(context) {
           label: t('一致性审计', 'Audit'),
           onClick: async () => {
             try {
-              const cfg = await loadCfg(context)
-              if (!cfg.token) throw new Error(t('请先登录后端', 'Please login first'))
-              const sel = context.getSelection ? context.getSelection() : null
-              const text = sel && sel.text ? String(sel.text) : String(context.getEditorValue() || '')
-              if (!text.trim()) return
-              const progress = await getProgressDocText(context, cfg)
-              const bible = await getBibleDocText(context, cfg)
-              const prev = await getPrevTextForRequest(context, cfg)
-              const constraints = mergeConstraints(cfg, '')
-              let rag = null
-              try {
-                rag = await rag_get_hits(context, cfg, text + '\n\n' + sliceTail(prev, 2000))
-              } catch {}
-              const json = await apiFetch(context, cfg, 'ai/proxy/chat/', {
-                mode: 'novel',
-                action: 'audit',
-                upstream: {
-                  baseUrl: cfg.upstream.baseUrl,
-                  apiKey: cfg.upstream.apiKey,
-                  model: cfg.upstream.model
-                },
-                input: { text, progress, bible, prev, constraints: constraints || undefined, rag: rag || undefined }
-              })
-              context.setEditorValue(String(context.getEditorValue() || '') + '\n\n' + String(json.text || ''))
-              context.ui.notice(t('已把审计结果追加到文末', 'Audit appended'), 'ok', 2200)
+              await openAuditDialog(context)
             } catch (e) {
               context.ui.notice(t('失败：', 'Failed: ') + (e && e.message ? e.message : String(e)), 'err', 2600)
             }
