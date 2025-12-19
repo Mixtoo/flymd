@@ -5468,9 +5468,45 @@ async function char_state_auto_update_after_accept(ctx, deltaText, reason) {
   } catch {}
 }
 
-async function char_state_try_update_from_prev_chapter(ctx, cfg, reason) {
+function ui_notice_hold_begin(ctx, msg) {
+  // 优先用新版可手动关闭的通知；否则尽力降级（不要因此打断主流程）
+  try {
+    if (ctx && ctx.ui && typeof ctx.ui.showNotification === 'function' && typeof ctx.ui.hideNotification === 'function') {
+      const id = ctx.ui.showNotification(String(msg || ''), { type: 'info', duration: 0 })
+      return { kind: 'ui', id }
+    }
+  } catch {}
+  try {
+    const nm = (typeof window !== 'undefined') ? window.NotificationManager : null
+    if (nm && typeof nm.show === 'function' && typeof nm.hide === 'function') {
+      const id = nm.show('extension', String(msg || ''), 0)
+      return { kind: 'nm', id }
+    }
+  } catch {}
+  try {
+    if (ctx && ctx.ui && typeof ctx.ui.notice === 'function') {
+      ctx.ui.notice(String(msg || ''), 'ok', 999999)
+      return { kind: 'notice', id: '' }
+    }
+  } catch {}
+  return null
+}
+
+function ui_notice_hold_end(ctx, hold) {
+  if (!hold || !hold.kind) return
+  if (hold.kind === 'ui') {
+    try { ctx && ctx.ui && ctx.ui.hideNotification && ctx.ui.hideNotification(hold.id) } catch {}
+    return
+  }
+  if (hold.kind === 'nm') {
+    try { window.NotificationManager && window.NotificationManager.hide && window.NotificationManager.hide(hold.id) } catch {}
+  }
+}
+
+async function char_state_try_update_from_prev_chapter(ctx, cfg, reason, opt) {
   // 约定：在“开始下一章/新开一卷”创建并打开新章节后调用；
   // 这样“上一章”才会被正确识别（尤其是新开卷的第一章要回退到上一卷最后一章）。
+  const onBegin = opt && typeof opt.onBegin === 'function' ? opt.onBegin : null
   try {
     const ragCfg = cfg && cfg.rag ? cfg.rag : {}
     if (ragCfg.autoUpdateCharState === false) return { ok: true, updated: false, skipped: true, why: 'disabled' }
@@ -5480,6 +5516,10 @@ async function char_state_try_update_from_prev_chapter(ctx, cfg, reason) {
     const lim = (cfg && cfg.ctx && cfg.ctx.maxUpdateSourceChars) ? (cfg.ctx.maxUpdateSourceChars | 0) : 20000
     const prev = await getPrevChapterTextForExtract(ctx, cfg, lim)
     if (!prev || !safeText(prev.text).trim()) return { ok: true, updated: false, skipped: true, why: 'no_prev' }
+
+    if (onBegin) {
+      try { onBegin() } catch {}
+    }
 
     const existing = await getCharStateBlockForUpdate(ctx, cfg)
     const res = await char_state_extract_from_text(ctx, cfg, { text: safeText(prev.text), path: safeText(prev.path), existing })
@@ -5533,14 +5573,21 @@ async function novel_create_next_chapter(ctx) {
 
   // 自动更新人物状态：只在“开始下一章”时更新，避免草稿小片段导致信息丢失
   if (opened) {
-    try { ctx.ui.notice(t('人物状态更新中…', 'Updating character states...'), 'ok', 1200) } catch {}
-    const r = await char_state_try_update_from_prev_chapter(ctx, cfg, t('开始下一章', 'Start next chapter'))
+    let hold = null
+    const r = await char_state_try_update_from_prev_chapter(ctx, cfg, t('开始下一章', 'Start next chapter'), {
+      onBegin: () => {
+        hold = ui_notice_hold_begin(ctx, t('人物状态更新中…请等待更新完成再使用续写功能', 'Updating character states... Please wait until it finishes before continuing.'))
+      }
+    })
+    ui_notice_hold_end(ctx, hold)
     if (r && r.updated) {
       if (r.parseOk) {
         try { ctx.ui.notice(t('人物状态已更新（写入 06_人物状态.md）', 'Character states updated (written to 06_人物状态.md)'), 'ok', 2000) } catch {}
       } else {
         try { ctx.ui.notice(t('人物状态更新失败：已把 AI 原文写入 06_人物状态.md（请手动整理）', 'Character state update failed: raw output saved to 06_人物状态.md'), 'err', 2600) } catch {}
       }
+    } else if (r && r.ok === false) {
+      try { ctx.ui.notice(t('人物状态更新失败：', 'Character state update failed: ') + safeText(r.error || ''), 'err', 2600) } catch {}
     }
   }
 
@@ -5577,14 +5624,21 @@ async function novel_create_next_volume(ctx) {
 
   // 新开卷后：同样用“上一卷最后一章”自动更新人物状态
   if (opened) {
-    try { ctx.ui.notice(t('人物状态更新中…', 'Updating character states...'), 'ok', 1200) } catch {}
-    const r = await char_state_try_update_from_prev_chapter(ctx, cfg, t('新开一卷', 'Start new volume'))
+    let hold = null
+    const r = await char_state_try_update_from_prev_chapter(ctx, cfg, t('新开一卷', 'Start new volume'), {
+      onBegin: () => {
+        hold = ui_notice_hold_begin(ctx, t('人物状态更新中…请等待更新完成再使用续写功能', 'Updating character states... Please wait until it finishes before continuing.'))
+      }
+    })
+    ui_notice_hold_end(ctx, hold)
     if (r && r.updated) {
       if (r.parseOk) {
         try { ctx.ui.notice(t('人物状态已更新（写入 06_人物状态.md）', 'Character states updated (written to 06_人物状态.md)'), 'ok', 2000) } catch {}
       } else {
         try { ctx.ui.notice(t('人物状态更新失败：已把 AI 原文写入 06_人物状态.md（请手动整理）', 'Character state update failed: raw output saved to 06_人物状态.md'), 'err', 2600) } catch {}
       }
+    } else if (r && r.ok === false) {
+      try { ctx.ui.notice(t('人物状态更新失败：', 'Character state update failed: ') + safeText(r.error || ''), 'err', 2600) } catch {}
     }
   }
 
