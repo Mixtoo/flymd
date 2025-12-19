@@ -1035,6 +1035,117 @@ async function getBibleDocText(ctx, cfg) {
   }
 }
 
+function _ainCharStateSplitH2Blocks(mdText) {
+  const text = _ainDiffNormEol(mdText)
+  const re = /^##\s+.*$/gm
+  const hits = []
+  let m
+  while ((m = re.exec(text))) {
+    hits.push({ i: m.index, header: m[0] ? String(m[0]).trim() : '##' })
+    if (hits.length >= 200) break
+  }
+  if (!hits.length) return []
+  const blocks = []
+  for (let k = 0; k < hits.length; k++) {
+    const start = hits[k].i
+    const end = (k + 1 < hits.length) ? hits[k + 1].i : text.length
+    const full = text.slice(start, end).trim()
+    if (!full) continue
+    blocks.push({ header: hits[k].header, full })
+  }
+  return blocks
+}
+
+function _ainCharStatePickLatestBlock(mdText) {
+  const blocks = _ainCharStateSplitH2Blocks(mdText)
+  if (!blocks.length) return ''
+
+  // 优先取“快照”块；没有就退回最后一块（哪怕是失败/原文）
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const h = safeText(blocks[i].header)
+    if (/^##\s*快照\b/u.test(h)) return blocks[i].full
+  }
+  return blocks[blocks.length - 1].full
+}
+
+function _ainCharStateParseItemsFromBlock(blockText) {
+  const t0 = safeText(blockText)
+  if (!t0.trim()) return []
+  const lines = _ainDiffNormEol(t0).split('\n')
+  const out = []
+  const seen = new Set()
+  for (let i = 0; i < lines.length; i++) {
+    const line = String(lines[i] || '').trim()
+    if (!line) continue
+    if (!/^[-*]\s+/.test(line)) continue
+    let s = line.replace(/^[-*]\s+/, '').trim()
+    if (!s) continue
+    if (s === '（无）' || s === '(none)') continue
+    let p = s.indexOf('：')
+    if (p < 0) p = s.indexOf(':')
+    if (p < 0) continue
+    const name = s.slice(0, p).trim()
+    const status = s.slice(p + 1).trim()
+    if (!name) continue
+    if (seen.has(name)) continue
+    seen.add(name)
+    out.push({ name, status })
+    if (out.length >= 80) break
+  }
+  return out
+}
+
+async function getCharStateDocRaw(ctx, cfg) {
+  try {
+    if (!ctx) return ''
+    const inf = await inferProjectDir(ctx, cfg)
+    if (!inf) return ''
+    const abs = joinFsPath(inf.projectAbs, '06_人物状态.md')
+    const text = await readTextAny(ctx, abs)
+    return safeText(text)
+  } catch {
+    return ''
+  }
+}
+
+async function getCharStateBlockForContext(ctx, cfg) {
+  try {
+    const raw = await getCharStateDocRaw(ctx, cfg)
+    const block = _ainCharStatePickLatestBlock(raw)
+    if (!safeText(block).trim()) return ''
+    const lim = (cfg && cfg.ctx && cfg.ctx.maxCharStateChars) ? Math.max(0, cfg.ctx.maxCharStateChars | 0) : 6000
+    return sliceHeadTail(block, lim, 0.55).trim()
+  } catch {
+    return ''
+  }
+}
+
+async function getCharStateBlockForUpdate(ctx, cfg) {
+  try {
+    const raw = await getCharStateDocRaw(ctx, cfg)
+    const block = _ainCharStatePickLatestBlock(raw)
+    if (!safeText(block).trim()) return ''
+    const lim = (cfg && cfg.ctx && cfg.ctx.maxCharStateUpdateChars) ? Math.max(0, cfg.ctx.maxCharStateUpdateChars | 0) : 16000
+    return sliceHeadTail(block, lim, 0.55).trim()
+  } catch {
+    return ''
+  }
+}
+
+async function getCharStateConstraintsText(ctx, cfg) {
+  try {
+    const block = await getCharStateBlockForContext(ctx, cfg)
+    if (!block) return ''
+    return [
+      t('【人物状态（自动注入）】', '[Character states (auto)]'),
+      block,
+      t('规则：以上是“已发生的事实”。续写必须保持一致；若要改变，必须在剧情中给出原因与过程。', 'Rule: The above are established facts. Keep consistency; if changed, justify it in-story.')
+    ].join('\n')
+  } catch {
+    return ''
+  }
+}
+
 function _fallbackHash32(s) {
   // 兜底：没有 crypto.subtle 时用一个简单 hash，避免功能完全不可用（不是安全用途）
   let h = 2166136261
@@ -3110,7 +3221,7 @@ async function openNextOptionsDialog(ctx) {
     cfg = await loadCfg(ctx)
     const instruction = safeText(inp.ta.value).trim()
     const localConstraints = safeText(extra.ta.value).trim()
-    const constraints = mergeConstraints(cfg, localConstraints)
+    const constraints = await mergeConstraintsWithCharState(ctx, cfg, localConstraints)
     if (!instruction) {
       ctx.ui.notice(t('请先写一句“指令/目标”', 'Please provide instruction/goal'), 'err', 1800)
       return
@@ -3187,6 +3298,7 @@ async function openNextOptionsDialog(ctx) {
       appendToDoc(ctx, lastText)
       ctx.ui.notice(t('已追加到文末', 'Appended'), 'ok', 1600)
       progress_auto_update_after_accept(ctx, lastText, '下一章续写追加到文末')
+      char_state_auto_update_after_accept(ctx, lastText, '下一章续写追加到文末')
     } catch (e) {
       ctx.ui.notice(t('追加失败：', 'Append failed: ') + (e && e.message ? e.message : String(e)), 'err', 2400)
     }
@@ -3262,7 +3374,7 @@ async function openWriteWithChoiceDialog(ctx) {
   )
   sec.appendChild(extra.wrap)
 
-  // 人物（上一章）——可选：提取上一章出场人物与状态，并注入到硬约束，避免“人被忘掉”
+  // 人物状态（06_人物状态.md）——自动注入到硬约束，避免“人被忘掉”（这会直接影响剧情走向）
   const _castState = { items: [] }
 
   function normCastItem(x) {
@@ -3301,19 +3413,19 @@ async function openWriteWithChoiceDialog(ctx) {
   const castCard = document.createElement('div')
   castCard.className = 'ain-card'
   castCard.style.marginTop = '10px'
-  castCard.innerHTML = `<div style="font-weight:700;margin-bottom:6px">${t('人物（上一章）', 'Characters (prev chapter)')}</div>`
+  castCard.innerHTML = `<div style="font-weight:700;margin-bottom:6px">${t('人物状态（06_人物状态.md）', 'Character states (06_人物状态.md)')}</div>`
   const castHint = document.createElement('div')
   castHint.className = 'ain-muted'
   castHint.textContent = t(
-    '可选：点“提取上一章”获取上一章出场人物与状态；勾选下一章是否出场，并可填写走向（可空）。这些内容会自动注入到“硬约束”，帮模型别忘人（不会写入文件）。',
-    'Optional: click Extract to get characters & status from prev chapter; choose whether they appear next and optionally add an arc. This will be injected into constraints (not written to files).'
+    '自动读取 06_人物状态.md 的最近“快照”并注入到硬约束；点“更新人物状态”会基于上一章正文更新 06_人物状态.md。若解析失败，会显示 AI 原文作为兜底（也会写入文件，便于手动整理）。',
+    'Auto-reads latest snapshot from 06_人物状态.md and injects into constraints. Click Update to refresh states from previous chapter. If parsing fails, raw AI output will be shown (also saved to file for manual editing).'
   )
   castCard.appendChild(castHint)
 
   const castTools = mkBtnRow()
   const btnCastExtract = document.createElement('button')
   btnCastExtract.className = 'ain-btn gray'
-  btnCastExtract.textContent = t('提取上一章', 'Extract prev')
+  btnCastExtract.textContent = t('更新人物状态', 'Update states')
   const btnCastAdd = document.createElement('button')
   btnCastAdd.className = 'ain-btn gray'
   btnCastAdd.style.marginLeft = '8px'
@@ -3330,13 +3442,72 @@ async function openWriteWithChoiceDialog(ctx) {
   const castStatus = document.createElement('div')
   castStatus.className = 'ain-muted'
   castStatus.style.marginTop = '6px'
-  castStatus.textContent = t('未提取。', 'Not extracted.')
+  castStatus.textContent = t('未读取人物状态。', 'No state loaded.')
   castCard.appendChild(castStatus)
+
+  const castStateTitle = document.createElement('div')
+  castStateTitle.className = 'ain-muted'
+  castStateTitle.style.marginTop = '6px'
+  castStateTitle.textContent = t('最近快照（来自 06_人物状态.md）：', 'Latest snapshot (from 06_人物状态.md):')
+  castCard.appendChild(castStateTitle)
+
+  const castStateOut = document.createElement('div')
+  castStateOut.className = 'ain-out'
+  castStateOut.style.minHeight = '90px'
+  castStateOut.style.marginTop = '6px'
+  castStateOut.textContent = t('（未发现快照）', '(no snapshot found)')
+  castCard.appendChild(castStateOut)
+
+  const castRawTitle = document.createElement('div')
+  castRawTitle.className = 'ain-muted'
+  castRawTitle.style.marginTop = '6px'
+  castRawTitle.textContent = t('AI 原文（解析失败时显示）：', 'Raw AI output (shown on parse failure):')
+  castRawTitle.style.display = 'none'
+  castCard.appendChild(castRawTitle)
+
+  const castRawOut = document.createElement('div')
+  castRawOut.className = 'ain-out'
+  castRawOut.style.minHeight = '90px'
+  castRawOut.style.marginTop = '6px'
+  castRawOut.style.display = 'none'
+  castCard.appendChild(castRawOut)
 
   const castList = document.createElement('div')
   castList.style.marginTop = '8px'
   castCard.appendChild(castList)
   sec.appendChild(castCard)
+
+  let _charStateLastBlockFull = ''
+
+  async function refreshCharStateFromFile(opt) {
+    const o = opt && typeof opt === 'object' ? opt : {}
+    const overwriteItems = !!o.overwriteItems
+    try {
+      cfg = await loadCfg(ctx)
+      const raw = await getCharStateDocRaw(ctx, cfg)
+      const blockFull = _ainCharStatePickLatestBlock(raw)
+      _charStateLastBlockFull = safeText(blockFull).trim()
+
+      const show = _charStateLastBlockFull ? sliceHeadTail(_charStateLastBlockFull, 6000, 0.55).trim() : ''
+      castStateOut.textContent = show || t('（未发现快照）', '(no snapshot found)')
+
+      const items = _ainCharStateParseItemsFromBlock(_charStateLastBlockFull)
+      const hasItems = Array.isArray(items) && items.length
+
+      if (overwriteItems || !(Array.isArray(_castState.items) && _castState.items.length)) {
+        _castState.items = hasItems
+          ? items.map((x) => ({ name: safeText(x.name).trim(), status: safeText(x.status).trim(), plan: '', appear: true }))
+          : []
+        renderCastList()
+      }
+
+      castStatus.textContent = _charStateLastBlockFull
+        ? t('已读取人物状态快照。', 'State snapshot loaded.')
+        : t('未发现人物状态快照。', 'No state snapshot found.')
+    } catch (e) {
+      castStatus.textContent = t('读取失败：', 'Read failed: ') + (e && e.message ? e.message : String(e))
+    }
+  }
 
   function renderCastList() {
     castList.innerHTML = ''
@@ -3344,7 +3515,7 @@ async function openWriteWithChoiceDialog(ctx) {
     if (!arr.length) {
       const empty = document.createElement('div')
       empty.className = 'ain-muted'
-      empty.textContent = t('暂无人物：可点“提取上一章”或“添加人物”。', 'No characters: extract from prev or add manually.')
+      empty.textContent = t('暂无人物：可点“更新人物状态”或“添加人物”。', 'No characters: update states or add manually.')
       castList.appendChild(empty)
       return
     }
@@ -3419,11 +3590,14 @@ async function openWriteWithChoiceDialog(ctx) {
     }
   }
 
-  async function doExtractPrevCharacters() {
+  async function doUpdateCharacterState() {
     try {
       cfg = await loadCfg(ctx)
       setBusy(btnCastExtract, true)
-      castStatus.textContent = t('提取中…', 'Extracting...')
+      castRawTitle.style.display = 'none'
+      castRawOut.style.display = 'none'
+      castRawOut.textContent = ''
+      castStatus.textContent = t('更新中…', 'Updating...')
 
       const lim = (cfg && cfg.ctx && cfg.ctx.maxUpdateSourceChars) ? (cfg.ctx.maxUpdateSourceChars | 0) : 20000
       const prev = await getPrevChapterTextForExtract(ctx, cfg, lim)
@@ -3431,69 +3605,51 @@ async function openWriteWithChoiceDialog(ctx) {
         throw new Error(t('未找到上一章正文：请先打开章节文件，或确认章节目录存在。', 'No previous chapter text: open a chapter file or check chapters folder.'))
       }
 
-      const q = [
-        '任务：从【上一章正文】中提取“出场人物清单”，并给出每个人在上一章结束时的状态。',
-        '规则：',
-        '1) 只允许基于【上一章正文】的明确内容；不确定就留空或写“未知”。',
-        '2) 人名用原文写法；不要合并不同人；不要编造未出场人物。',
-        '3) 输出必须是 JSON 数组，且只输出 JSON（不要 ``` 代码块，不要解释）。',
-        '字段：name（必填，人物名）, status（可空，一句话：位置/伤势/关系/目标/当前处境）, note（可空：上一章主要行动一句话）。',
-        '数量：最多 30 个，按重要性/出场频率排序。',
-        '',
-        '【上一章文件】',
-        safeText(prev.path),
-        '',
-        '【上一章正文】',
-        safeText(prev.text)
-      ].join('\n')
-
-      const resp = await apiFetchConsultWithJob(ctx, cfg, {
-        upstream: {
-          baseUrl: cfg.upstream.baseUrl,
-          apiKey: cfg.upstream.apiKey,
-          model: cfg.upstream.model
-        },
-        input: {
-          question: q,
-          progress: '',
-          bible: '',
-          prev: '',
-        }
-      }, {
-        timeoutMs: 190000,
-        onTick: ({ waitMs }) => {
-          const s = Math.max(0, Math.round(Number(waitMs || 0) / 1000))
-          castStatus.textContent = t('提取中… 已等待 ', 'Extracting... waited ') + s + 's'
-        }
-      })
-
-      const txt = safeText(resp && resp.text).trim()
-      const arr = tryParseOptionsDataFromText(txt) || []
-      if (!Array.isArray(arr)) throw new Error(t('人物提取输出无法解析为 JSON 数组', 'Cannot parse JSON array'))
-
-      const out = []
-      for (let i = 0; i < arr.length; i++) {
-        const it = arr[i] && typeof arr[i] === 'object' ? arr[i] : null
-        if (!it) continue
-        const name = safeText(it.name != null ? it.name : (it.character != null ? it.character : '')).trim()
-        if (!name) continue
-        const status = safeText(it.status != null ? it.status : (it.state != null ? it.state : '')).trim()
-        const note = safeText(it.note != null ? it.note : '').trim()
-        out.push({ name, status: status || note, plan: '', appear: true })
+      if (!_charStateLastBlockFull) {
+        try { await refreshCharStateFromFile({ overwriteItems: false }) } catch {}
       }
 
-      _castState.items = out
-      renderCastList()
-      castStatus.textContent = t('已提取人物：', 'Extracted: ') + String(out.length)
-      ctx.ui.notice(t('已提取上一章人物', 'Characters extracted'), 'ok', 1600)
+      const res = await char_state_extract_from_text(ctx, cfg, {
+        text: safeText(prev.text),
+        path: safeText(prev.path),
+        existing: _charStateLastBlockFull
+      })
+
+      const ts = _fmtLocalTs()
+      const title = (res.ok ? '快照 ' : '解析失败 ') + ts + '（上一章提取）'
+
+      if (res.ok) {
+        const md = char_state_format_snapshot_md(res.data)
+        await char_state_append_block(ctx, cfg, md, title)
+        castStatus.textContent = t('已更新人物状态：', 'States updated: ') + String((res.data && res.data.length) ? res.data.length : 0)
+        ctx.ui.notice(t('已更新人物状态', 'States updated'), 'ok', 1600)
+        await refreshCharStateFromFile({ overwriteItems: true })
+        return
+      }
+
+      const rawShort = sliceHeadTail(safeText(res.raw).trim(), 12000, 0.6)
+      const failBlock = [
+        t('> 解析失败：', '> Parse failed: ') + safeText(res.error || ''),
+        t('> 以下为 AI 原文（可手动整理为条目）：', '> Raw AI output (you can manually format it):'),
+        '```text',
+        rawShort,
+        '```'
+      ].join('\n')
+      await char_state_append_block(ctx, cfg, failBlock, title)
+
+      castStatus.textContent = t('更新失败：', 'Update failed: ') + safeText(res.error || '')
+      castRawTitle.style.display = ''
+      castRawOut.style.display = ''
+      castRawOut.textContent = rawShort || t('（空）', '(empty)')
+      ctx.ui.notice(t('人物状态更新失败：已显示并写入 AI 原文（请手动整理）', 'State update failed: raw output shown and saved (please edit manually)'), 'err', 2800)
     } catch (e) {
-      castStatus.textContent = t('提取失败：', 'Extract failed: ') + (e && e.message ? e.message : String(e))
+      castStatus.textContent = t('更新失败：', 'Update failed: ') + (e && e.message ? e.message : String(e))
     } finally {
       setBusy(btnCastExtract, false)
     }
   }
 
-  btnCastExtract.onclick = () => { doExtractPrevCharacters().catch(() => {}) }
+  btnCastExtract.onclick = () => { doUpdateCharacterState().catch(() => {}) }
   btnCastAdd.onclick = () => {
     try {
       _castState.items = (Array.isArray(_castState.items) ? _castState.items.slice(0) : [])
@@ -3508,6 +3664,7 @@ async function openWriteWithChoiceDialog(ctx) {
     renderCastList()
   }
   renderCastList()
+  refreshCharStateFromFile({ overwriteItems: true }).catch(() => {})
 
   const a0 = _ainAgentGetCfg(cfg)
   const agentBox = document.createElement('div')
@@ -3870,7 +4027,7 @@ async function openWriteWithChoiceDialog(ctx) {
     cfg = await loadCfg(ctx)
     const instruction = ensureInstruction(getInstructionText(), t('按选中走向续写本章', 'Write with the selected option'))
     const localConstraints = getLocalConstraintsText()
-    const constraints = mergeConstraints(cfg, localConstraints)
+    const constraints = await mergeConstraintsWithCharState(ctx, cfg, localConstraints)
 
     const prev = await getPrevTextForRequest(ctx, cfg)
     const progress = await getProgressDocText(ctx, cfg)
@@ -3968,7 +4125,7 @@ async function openWriteWithChoiceDialog(ctx) {
     cfg = await loadCfg(ctx)
     const instruction = getInstructionText()
     const localConstraints = getLocalConstraintsText()
-    const constraints = mergeConstraints(cfg, localConstraints)
+    const constraints = await mergeConstraintsWithCharState(ctx, cfg, localConstraints)
     if (!instruction) {
       ctx.ui.notice(t('请先写清楚“本章目标/要求”', 'Please provide instruction/goal'), 'err', 2000)
       return
@@ -4092,6 +4249,7 @@ async function openWriteWithChoiceDialog(ctx) {
       appendToDoc(ctx, lastText)
       ctx.ui.notice(t('已追加到文末', 'Appended'), 'ok', 1600)
       progress_auto_update_after_accept(ctx, lastText, '续写正文追加到文末')
+      char_state_auto_update_after_accept(ctx, lastText, '续写正文追加到文末')
     } catch (e) {
       ctx.ui.notice(t('追加失败：', 'Append failed: ') + (e && e.message ? e.message : String(e)), 'err', 2400)
     }
@@ -4162,7 +4320,7 @@ async function callNovel(ctx, action, instructionOverride, constraintsOverride) 
   try {
     rag = await rag_get_hits(ctx, cfg, instruction + '\n\n' + sliceTail(prev, 2000))
   } catch {}
-  const constraints = mergeConstraints(cfg, constraintsOverride)
+  const constraints = await mergeConstraintsWithCharState(ctx, cfg, constraintsOverride)
 
   const json = await apiFetch(ctx, cfg, 'ai/proxy/chat/', {
     mode: 'novel',
@@ -4841,6 +4999,20 @@ function mergeConstraints(cfg, localConstraints) {
   return g || l
 }
 
+async function mergeConstraintsWithCharState(ctx, cfg, localConstraints) {
+  const base = mergeConstraints(cfg, localConstraints)
+  try {
+    const cs = await getCharStateConstraintsText(ctx, cfg)
+    if (!cs) return base
+    // 用户手动写了【人物状态】就别重复注入
+    if (base && /【人物状态/u.test(base)) return base
+    if (base) return base + '\n\n' + cs
+    return cs
+  } catch {
+    return base
+  }
+}
+
 function isActionNotSupportedError(e) {
   const msg = e && e.message ? String(e.message) : String(e)
   return /action\s*不支持|不支持或输入不完整|not\s+supported|not\s+support|unsupported/i.test(msg)
@@ -5191,6 +5363,107 @@ async function progress_auto_update_after_accept(ctx, deltaText, reason) {
     await progress_append_block(ctx, cfg, upd, '自动更新 ' + _fmtLocalTs())
     // 进度脉络变了：顺手把索引也更新一下（失败不影响主流程）
     try { await rag_build_or_update_index(ctx, cfg) } catch {}
+  } catch {}
+}
+
+function char_state_format_snapshot_md(data) {
+  const arr = Array.isArray(data) ? data : []
+  const seen = new Set()
+  const lines = []
+  for (let i = 0; i < arr.length; i++) {
+    const it = arr[i] && typeof arr[i] === 'object' ? arr[i] : null
+    if (!it) continue
+    const name = safeText(it.name != null ? it.name : (it.character != null ? it.character : '')).trim()
+    if (!name) continue
+    if (seen.has(name)) continue
+    seen.add(name)
+    const status = safeText(it.status != null ? it.status : (it.state != null ? it.state : '')).trim()
+    const note = safeText(it.note != null ? it.note : '').trim()
+    const s = status || note
+    if (!s) continue
+    let line = '- ' + name + '：' + s
+    if (status && note && note !== status) line += '（' + note + '）'
+    lines.push(line)
+    if (lines.length >= 60) break
+  }
+  if (!lines.length) return t('- （无）', '- (none)')
+  return lines.join('\n')
+}
+
+async function char_state_append_block(ctx, cfg, blockText, title) {
+  const inf = await inferProjectDir(ctx, cfg)
+  if (!inf) throw new Error(t('无法推断当前项目，请先在“项目管理”选择小说项目', 'Cannot infer project; select one in Project Manager'))
+  const p = joinFsPath(inf.projectAbs, '06_人物状态.md')
+  let cur = ''
+  try { cur = await readTextAny(ctx, p) } catch { cur = '' }
+  const base = safeText(cur).trim() ? safeText(cur) : t('# 人物状态\n\n', '# Character states\n\n')
+  const head = title ? ('## ' + String(title)) : ('## 快照 ' + _fmtLocalTs())
+  const next = (safeText(base).trimEnd() + '\n\n' + head + '\n\n' + safeText(blockText).trim() + '\n').trimStart()
+  await writeTextAny(ctx, p, next)
+}
+
+async function char_state_extract_from_text(ctx, cfg, opt) {
+  const o = (opt && typeof opt === 'object') ? opt : {}
+  const text = safeText(o.text).trim()
+  if (!text) return { ok: false, data: [], raw: '', error: t('章节文本为空', 'Empty chapter text') }
+  const existing = safeText(o.existing).trim()
+  const path = safeText(o.path).trim()
+
+  const resp = await apiFetch(ctx, cfg, 'ai/proxy/cast/', {
+    upstream: {
+      baseUrl: cfg.upstream.baseUrl,
+      apiKey: cfg.upstream.apiKey,
+      model: cfg.upstream.model
+    },
+    input: {
+      text,
+      path: path || undefined,
+      existing: existing || undefined
+    }
+  })
+
+  const raw = safeText(resp && resp.text).trim()
+  const data = Array.isArray(resp && resp.data) ? resp.data : null
+  const perr = safeText(resp && resp.parse_error).trim()
+  if (data && data.length) return { ok: true, data, raw, error: '' }
+  return { ok: false, data: [], raw, error: perr || t('人物状态解析失败', 'Parse failed') }
+}
+
+async function char_state_auto_update_after_accept(ctx, deltaText, reason) {
+  try {
+    const cfg = await loadCfg(ctx)
+    const ragCfg = cfg && cfg.rag ? cfg.rag : {}
+    if (ragCfg.autoUpdateCharState === false) return
+    if (!cfg.token) return
+    if (!cfg.upstream || !cfg.upstream.baseUrl || !cfg.upstream.model) return
+
+    const text = safeText(deltaText).trim()
+    if (!text) return
+
+    const existing = await getCharStateBlockForUpdate(ctx, cfg)
+    const res = await char_state_extract_from_text(ctx, cfg, { text, existing })
+
+    const ts = _fmtLocalTs()
+    const title = (res.ok ? '快照 ' : '解析失败 ') + ts + (reason ? ('（' + String(reason) + '）') : '')
+
+    if (res.ok) {
+      const md = char_state_format_snapshot_md(res.data)
+      await char_state_append_block(ctx, cfg, md, title)
+      return
+    }
+
+    const rawShort = sliceHeadTail(safeText(res.raw).trim(), 12000, 0.6)
+    const failBlock = [
+      t('> 解析失败：', '> Parse failed: ') + safeText(res.error || ''),
+      t('> 以下为 AI 原文（可手动整理为条目）：', '> Raw AI output (you can manually format it):'),
+      '```text',
+      rawShort,
+      '```'
+    ].join('\n')
+    await char_state_append_block(ctx, cfg, failBlock, title)
+    try {
+      ctx.ui.notice(t('人物状态自动更新失败：已把 AI 原文写入 06_人物状态.md（请手动整理）', 'Character state auto update failed: raw output saved to 06_人物状态.md (please format manually)'), 'err', 2600)
+    } catch {}
   } catch {}
 }
 
@@ -5688,6 +5961,7 @@ async function openBootstrapDialog(ctx) {
     await writeTextAny(ctx, joinFsPath(projectAbs, '03_主要角色.md'), safeText(chars.ta.value).trim() || t('# 主要角色\n\n- 角色名：性格/动机/当前状态\n', '# Characters\n\n- Name: traits/motivation/status\n'))
     await writeTextAny(ctx, joinFsPath(projectAbs, '04_人物关系.md'), safeText(rels.ta.value).trim() || t('# 人物关系\n\n- A ↔ B：关系/矛盾/利益\n', '# Relations\n\n- A ↔ B: relation/conflict/stakes\n'))
     await writeTextAny(ctx, joinFsPath(projectAbs, '05_章节大纲.md'), safeText(outline.ta.value).trim() || t('# 章节大纲\n\n- 第 1 章：\n- 第 2 章：\n', '# Outline\n\n- Chapter 1:\n- Chapter 2:\n'))
+    await writeTextAny(ctx, joinFsPath(projectAbs, '06_人物状态.md'), t('# 人物状态\n\n- （自动维护：每次更新会追加一个“快照”，用于续写上下文）\n', '# Character states\n\n- (Auto-maintained snapshots for writing context)\n'))
     await writeTextAny(ctx, joinFsPath(projectAbs, '.ainovel/index.json'), JSON.stringify({ version: 1, created_at: now }, null, 2))
 
     const chapDir = joinFsPath(projectAbs, '03_章节')
@@ -5699,7 +5973,8 @@ async function openBootstrapDialog(ctx) {
     // 项目已落盘：后台构建 RAG 索引 + 自动更新进度脉络（失败不影响主流程）
     try { rag_build_or_update_index(ctx, cfg).catch(() => {}) } catch {}
     try { progress_auto_update_after_accept(ctx, lastChapter, '创建项目写入第一章') } catch {}
- 
+    try { char_state_auto_update_after_accept(ctx, lastChapter, '创建项目写入第一章') } catch {}
+  
     try {
       if (typeof ctx.openFileByPath === 'function') {
         await ctx.openFileByPath(chapPath)
@@ -5779,7 +6054,7 @@ async function openConsultDialog(ctx) {
     const prev = await getPrevTextForRequest(ctx, cfg)
     const progress = await getProgressDocText(ctx, cfg)
     const bible = await getBibleDocText(ctx, cfg)
-    const constraints = mergeConstraints(cfg, safeText(cons.ta.value).trim())
+    const constraints = await mergeConstraintsWithCharState(ctx, cfg, safeText(cons.ta.value).trim())
     let rag = null
     try {
       rag = await rag_get_hits(ctx, cfg, question + '\n\n' + sliceTail(prev, 2000))
@@ -5851,7 +6126,7 @@ async function openAuditDialog(ctx) {
     const progress = await getProgressDocText(ctx, cfg)
     const bible = await getBibleDocText(ctx, cfg)
     const prev = await getPrevTextForRequest(ctx, cfg)
-    const constraints = mergeConstraints(cfg, '')
+    const constraints = await mergeConstraintsWithCharState(ctx, cfg, '')
     let rag = null
     try {
       rag = await rag_get_hits(ctx, cfg, inputText + '\n\n' + sliceTail(prev, 2000))
@@ -6354,7 +6629,7 @@ async function openMetaUpdateDialog(ctx) {
         rag = await rag_get_hits(ctx, cfg, g + '\n\n' + sliceTail(prev, 2000))
       } catch {}
 
-      const constraints = mergeConstraints(cfg, safeText(cons.ta.value).trim())
+      const constraints = await mergeConstraintsWithCharState(ctx, cfg, safeText(cons.ta.value).trim())
 
       setBusy(btnGen, true)
       btnWrite.disabled = true
@@ -6833,7 +7108,7 @@ async function openImportExistingDialog(ctx) {
       const chapters = await buildChapterListText(inf)
       const progress = await getProgressDocText(ctx, cfg)
       const prev = await getPrevTextForRequest(ctx, cfg)
-      const constraints = mergeConstraints(cfg, safeText(cons.ta.value).trim())
+      const constraints = await mergeConstraintsWithCharState(ctx, cfg, safeText(cons.ta.value).trim())
       const goalText = safeText(goal.ta.value).trim()
 
       setBusy(btnGen, true)
@@ -6911,7 +7186,7 @@ async function openImportExistingDialog(ctx) {
     try {
       if (!(await fileExists(ctx, joinFsPath(base, '00_项目.md')))) {
         const name = inf.projectName || safeFileName(fsBaseName(base), '项目')
-        const metaMd = ['# ' + name, '', '- 本项目由“导入现有文稿（初始化资料）”创建资料文件。', '- 资料文件：01_进度脉络/02_世界设定/03_主要角色/04_人物关系/05_章节大纲', ''].join('\n')
+        const metaMd = ['# ' + name, '', '- 本项目由“导入现有文稿（初始化资料）”创建资料文件。', '- 资料文件：01_进度脉络/02_世界设定/03_主要角色/04_人物关系/05_章节大纲/06_人物状态', ''].join('\n')
         await writeTextAny(ctx, joinFsPath(base, '00_项目.md'), metaMd)
       }
     } catch {}
@@ -6920,6 +7195,7 @@ async function openImportExistingDialog(ctx) {
     try { if (!(await fileExists(ctx, joinFsPath(base, '03_主要角色.md')))) await writeTextAny(ctx, joinFsPath(base, '03_主要角色.md'), '# 主要角色\n\n') } catch {}
     try { if (!(await fileExists(ctx, joinFsPath(base, '04_人物关系.md')))) await writeTextAny(ctx, joinFsPath(base, '04_人物关系.md'), '# 人物关系\n\n') } catch {}
     try { if (!(await fileExists(ctx, joinFsPath(base, '05_章节大纲.md')))) await writeTextAny(ctx, joinFsPath(base, '05_章节大纲.md'), '# 章节大纲\n\n') } catch {}
+    try { if (!(await fileExists(ctx, joinFsPath(base, '06_人物状态.md')))) await writeTextAny(ctx, joinFsPath(base, '06_人物状态.md'), '# 人物状态\n\n') } catch {}
   }
 
   btnWrite.onclick = async () => {
@@ -7197,7 +7473,7 @@ async function callNovelRevise(ctx, cfg, baseText, instruction, localConstraints
   const prev = await getPrevTextForRevise(ctx, cfg, text)
   const progress = await getProgressDocText(ctx, cfg)
   const bible = await getBibleDocText(ctx, cfg)
-  const constraints = mergeConstraints(cfg, localConstraints)
+  const constraints = await mergeConstraintsWithCharState(ctx, cfg, localConstraints)
 
   let rag = null
   try {
@@ -7499,6 +7775,7 @@ async function openDraftReviewDialog(ctx, opts) {
       ctx.setEditorValue(replaced)
       // 定稿后再更新进度（避免反复改稿污染进度脉络）
       try { progress_auto_update_after_accept(ctx, nextText, '草稿定稿覆盖写入') } catch {}
+      try { char_state_auto_update_after_accept(ctx, nextText, '草稿定稿覆盖写入') } catch {}
       ctx.ui.notice(t('已覆盖草稿块', 'Draft overwritten'), 'ok', 1800)
     } catch (e) {
       ctx.ui.notice(t('覆盖失败：', 'Overwrite failed: ') + (e && e.message ? e.message : String(e)), 'err', 2600)
@@ -7656,7 +7933,7 @@ async function openProjectManagerDialog(ctx) {
       ctx.ui.notice(t('当前环境不支持打开文件', 'openFileByPath not available'), 'err', 2000)
       return
     }
-    const files = ['01_进度脉络.md', '02_世界设定.md', '03_主要角色.md', '04_人物关系.md', '05_章节大纲.md']
+    const files = ['01_进度脉络.md', '02_世界设定.md', '03_主要角色.md', '04_人物关系.md', '05_章节大纲.md', '06_人物状态.md']
     for (let i = 0; i < files.length; i++) {
       const p = joinFsPath(it.projectAbs, files[i])
       if (!(await fileExists(ctx, p))) {
