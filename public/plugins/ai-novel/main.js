@@ -58,7 +58,7 @@ const DEFAULT_CFG = {
     chunkOverlap: 160,
     // 仅建议 macOS 遇到 forbidden path 时开启：把索引落到 AppLocalData（插件数据目录），避免 Documents 等路径被 fs scope 拦截。
     indexInAppLocalData: false,
-    // 自动更新进度脉络：仅在“用户确认追加正文到文档/创建项目写入章节”后触发（避免生成但未采用也写进度）
+    // 自动更新进度脉络：仅在“开始下一章/新开卷”时基于上一章触发（避免草稿片段/未采用内容污染进度）
     autoUpdateProgress: true
   },
   constraints: {
@@ -3613,7 +3613,6 @@ async function openNextOptionsDialog(ctx) {
       if (!lastText) return
       appendToDoc(ctx, lastText)
       ctx.ui.notice(t('已追加到文末', 'Appended'), 'ok', 1600)
-      progress_auto_update_after_accept(ctx, lastText, '下一章续写追加到文末')
     } catch (e) {
       ctx.ui.notice(t('追加失败：', 'Append failed: ') + (e && e.message ? e.message : String(e)), 'err', 2400)
     }
@@ -4714,7 +4713,6 @@ async function openWriteWithChoiceDialog(ctx) {
       if (!lastText) return
       appendToDoc(ctx, lastText)
       ctx.ui.notice(t('已追加到文末', 'Appended'), 'ok', 1600)
-      progress_auto_update_after_accept(ctx, lastText, '续写正文追加到文末')
     } catch (e) {
       ctx.ui.notice(t('追加失败：', 'Append failed: ') + (e && e.message ? e.message : String(e)), 'err', 2400)
     }
@@ -6450,21 +6448,6 @@ async function progress_append_block(ctx, cfg, blockText, title) {
   await writeTextAny(ctx, p, next)
 }
 
-async function progress_auto_update_after_accept(ctx, deltaText, reason) {
-  try {
-    const cfg = await loadCfg(ctx)
-    const ragCfg = cfg && cfg.rag ? cfg.rag : {}
-    if (ragCfg.autoUpdateProgress === false) return
-    if (!cfg.token) return
-    if (!cfg.upstream || !cfg.upstream.baseUrl || !cfg.upstream.model) return
-    const upd = await progress_generate_update(ctx, cfg, deltaText, reason ? ('触发来源：' + String(reason)) : '')
-    if (!upd) return
-    await progress_append_block(ctx, cfg, upd, '自动更新 ' + _fmtLocalTs())
-    // 进度脉络变了：顺手把索引也更新一下（失败不影响主流程）
-    try { await rag_build_or_update_index(ctx, cfg) } catch {}
-  } catch {}
-}
-
 async function progress_try_update_from_prev_chapter(ctx, cfg, prev, reason) {
   try {
     const ragCfg = cfg && cfg.rag ? cfg.rag : {}
@@ -6563,44 +6546,6 @@ async function char_state_extract_from_text(ctx, cfg, opt) {
   const perr = safeText(resp && resp.parse_error).trim()
   if (data && data.length) return { ok: true, data, raw, error: '' }
   return { ok: false, data: [], raw, error: perr || t('人物状态解析失败', 'Parse failed') }
-}
-
-async function char_state_auto_update_after_accept(ctx, deltaText, reason) {
-  try {
-    const cfg = await loadCfg(ctx)
-    const ragCfg = cfg && cfg.rag ? cfg.rag : {}
-    if (ragCfg.autoUpdateCharState === false) return
-    if (!cfg.token) return
-    if (!cfg.upstream || !cfg.upstream.baseUrl || !cfg.upstream.model) return
-
-    const text = safeText(deltaText).trim()
-    if (!text) return
-
-    const existing = await getCharStateBlockForUpdate(ctx, cfg)
-    const res = await char_state_extract_from_text(ctx, cfg, { text, existing })
-
-    const ts = _fmtLocalTs()
-    const title = (res.ok ? '快照 ' : '解析失败 ') + ts + (reason ? ('（' + String(reason) + '）') : '')
-
-    if (res.ok) {
-      const md = char_state_format_snapshot_md(res.data)
-      await char_state_append_block(ctx, cfg, md, title)
-      return
-    }
-
-    const rawShort = sliceHeadTail(safeText(res.raw).trim(), 12000, 0.6)
-    const failBlock = [
-      t('> 解析失败：', '> Parse failed: ') + safeText(res.error || ''),
-      t('> 以下为 AI 原文（可手动整理为条目）：', '> Raw AI output (you can manually format it):'),
-      '```text',
-      rawShort,
-      '```'
-    ].join('\n')
-    await char_state_append_block(ctx, cfg, failBlock, title)
-    try {
-      ctx.ui.notice(t('人物状态自动更新失败：已把 AI 原文写入 06_人物状态.md（请手动整理）', 'Character state auto update failed: raw output saved to 06_人物状态.md (please format manually)'), 'err', 2600)
-    } catch {}
-  } catch {}
 }
 
 function ui_notice_hold_begin(ctx, msg) {
@@ -6815,6 +6760,12 @@ async function novel_create_next_chapter(ctx) {
       try { ctx.ui.notice(t('进度脉络已更新（写入 01_进度脉络.md）', 'Progress updated (written to 01_进度脉络.md)'), 'ok', 2000) } catch {}
     } else if (pr && pr.ok === false) {
       try { ctx.ui.notice(t('进度脉络更新失败：', 'Progress update failed: ') + safeText(pr.error || ''), 'err', 2600) } catch {}
+    } else if (pr && pr.ok && !pr.updated) {
+      if (pr.why === 'already') {
+        try { ctx.ui.notice(t('进度脉络未更新：该来源章节已更新过', 'Progress not updated: already updated for this source'), 'ok', 1800) } catch {}
+      } else if (pr.why === 'empty') {
+        try { ctx.ui.notice(t('进度脉络未更新：上游返回空（可能是模型/拒答/截断）', 'Progress not updated: upstream returned empty'), 'err', 2600) } catch {}
+      }
     }
   }
 
@@ -6882,6 +6833,12 @@ async function novel_create_next_volume(ctx) {
       try { ctx.ui.notice(t('进度脉络已更新（写入 01_进度脉络.md）', 'Progress updated (written to 01_进度脉络.md)'), 'ok', 2000) } catch {}
     } else if (pr && pr.ok === false) {
       try { ctx.ui.notice(t('进度脉络更新失败：', 'Progress update failed: ') + safeText(pr.error || ''), 'err', 2600) } catch {}
+    } else if (pr && pr.ok && !pr.updated) {
+      if (pr.why === 'already') {
+        try { ctx.ui.notice(t('进度脉络未更新：该来源章节已更新过', 'Progress not updated: already updated for this source'), 'ok', 1800) } catch {}
+      } else if (pr.why === 'empty') {
+        try { ctx.ui.notice(t('进度脉络未更新：上游返回空（可能是模型/拒答/截断）', 'Progress not updated: upstream returned empty'), 'err', 2600) } catch {}
+      }
     }
   }
 
@@ -7475,9 +7432,8 @@ async function openBootstrapDialog(ctx) {
  
     cfg = await saveCfg(ctx, { currentProjectRel: projectRel })
 
-    // 项目已落盘：后台构建 RAG 索引 + 自动更新进度脉络（失败不影响主流程）
+    // 项目已落盘：后台构建 RAG 索引（失败不影响主流程）
     try { rag_build_or_update_index(ctx, cfg).catch(() => {}) } catch {}
-    try { progress_auto_update_after_accept(ctx, lastChapter, '创建项目写入第一章') } catch {}
   
     try {
       if (typeof ctx.openFileByPath === 'function') {
@@ -9331,8 +9287,6 @@ async function openDraftReviewDialog(ctx, opts) {
       }
       setBusy(btnApply, true)
       ctx.setEditorValue(replaced)
-      // 定稿后再更新进度（避免反复改稿污染进度脉络）
-      try { progress_auto_update_after_accept(ctx, nextText, '草稿定稿覆盖写入') } catch {}
       ctx.ui.notice(t('已覆盖草稿块', 'Draft overwritten'), 'ok', 1800)
     } catch (e) {
       ctx.ui.notice(t('覆盖失败：', 'Overwrite failed: ') + (e && e.message ? e.message : String(e)), 'err', 2600)
