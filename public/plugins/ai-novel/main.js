@@ -17,6 +17,10 @@ const LOW_BALANCE_WARN_TEXT = '当前剩余字符不足5万，大文本场景写
 // 自动探测余额的最小间隔：避免频繁打开窗口时反复打后端
 const BILLING_PROBE_TTL_MS = 20000
 
+// 全站通知：后端发布，前端本地记“已读”（仅用于提示，不阻断任何功能）
+const NOTICE_READ_LS_KEY = 'aiNovel.noticeRead.v1'
+const NOTICE_PROBE_TTL_MS = 20000
+
 const DEFAULT_CFG = {
   // 后端地址：强制内置，不在设置里展示
   backendBaseUrl: 'https://flymd.nyc.mn/xiaoshuo',
@@ -107,6 +111,8 @@ let __MINI__ = null
 let __LOW_BALANCE_WARN_SHOWN__ = false
 let __LAST_BILLING_PROBE_AT__ = 0
 let __BILLING_PROBE_INFLIGHT__ = false
+let __NOTICE_PROBE_INFLIGHT__ = null
+let __NOTICE_CACHE__ = { ts: 0, json: null }
 
 function detectLocale() {
   try {
@@ -2288,6 +2294,19 @@ function ensureDialogStyle() {
 .ain-winbtn{background:transparent;border:0;color:#94a3b8;font-size:16px;cursor:pointer;min-width:28px;height:28px;line-height:28px;border-radius:6px}
 .ain-winbtn:hover{background:rgba(148,163,184,.15);color:#e2e8f0}
 .ain-close{font-size:20px}
+.ain-notice-host{display:none;padding:10px 20px;border-bottom:1px solid #334155;background:#0b1220}
+.ain-notice{display:flex;gap:10px;align-items:flex-start}
+.ain-notice-badge{flex:0 0 auto;font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid #334155;color:#e2e8f0;user-select:none}
+.ain-notice-badge.info{background:rgba(59,130,246,.15);border-color:rgba(59,130,246,.45)}
+.ain-notice-badge.warn{background:rgba(245,158,11,.15);border-color:rgba(245,158,11,.45)}
+.ain-notice-badge.danger{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.45)}
+.ain-notice-main{flex:1;min-width:0}
+.ain-notice-title{font-weight:700;color:#f1f5f9;font-size:13px;line-height:18px}
+.ain-notice-meta{margin-top:2px;color:#94a3b8;font-size:12px}
+.ain-notice-content{margin-top:8px;color:#cbd5e1;font-size:12px;white-space:pre-wrap;background:rgba(15,23,42,.55);border:1px solid #334155;border-radius:8px;padding:10px;max-height:220px;overflow:auto;display:none}
+.ain-notice-actions{display:flex;gap:8px;flex:0 0 auto;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.ain-notice-link{background:transparent;border:0;color:#8ab4ff;cursor:pointer;padding:0 2px}
+.ain-notice-link:hover{text-decoration:underline}
 .ain-body{padding:20px}
 .ain-card{background:#1e293b;border:1px solid #334155;border-radius:8px;padding:16px;margin:12px 0}
 .ain-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -3191,10 +3210,14 @@ async function openSettingsDialog(ctx) {
   body.appendChild(secSave)
 
   dlg.appendChild(head)
+  const noticeHost = document.createElement('div')
+  noticeHost.className = 'ain-notice-host'
+  dlg.appendChild(noticeHost)
   dlg.appendChild(body)
   overlay.appendChild(dlg)
   document.body.appendChild(overlay)
   __DIALOG__ = overlay
+  try { notice_mount_banner(ctx, noticeHost) } catch {}
 
   // 初次打开尝试刷新一次
   try { await refreshBilling() } catch {}
@@ -3342,6 +3365,7 @@ function createDialogShell(title, onClose) {
   closeDialog()
   // 打开任意窗口时自动探测一次余额（仅用于低余额常驻提醒；做了节流）
   try { void probeLowBalanceWarnThrottled(__CTX__) } catch {}
+  // 打开任意窗口时，尝试展示通知（非阻断；失败忽略）
 
   const overlay = document.createElement('div')
   overlay.className = 'ain-overlay'
@@ -3390,12 +3414,16 @@ function createDialogShell(title, onClose) {
   body.className = 'ain-body'
 
   dlg.appendChild(head)
+  const noticeHost = document.createElement('div')
+  noticeHost.className = 'ain-notice-host'
+  dlg.appendChild(noticeHost)
   dlg.appendChild(body)
   overlay.appendChild(dlg)
   // 注意：不要通过点击遮罩关闭，避免拖拽选中文本时鼠标溢出误触导致窗口消失
 
   document.body.appendChild(overlay)
   __DIALOG__ = overlay
+  try { notice_mount_banner(__CTX__, noticeHost) } catch {}
   return { overlay, dlg, head, body, ttl }
 }
 
@@ -7062,6 +7090,174 @@ async function probeLowBalanceWarnThrottled(ctx) {
     } finally {
       __BILLING_PROBE_INFLIGHT__ = false
     }
+  } catch {}
+}
+
+function notice_load_read_map() {
+  try {
+    const raw = localStorage.getItem(NOTICE_READ_LS_KEY)
+    const v = raw ? JSON.parse(raw) : null
+    return (v && typeof v === 'object') ? v : {}
+  } catch {
+    return {}
+  }
+}
+
+function notice_save_read_map(map) {
+  try {
+    localStorage.setItem(NOTICE_READ_LS_KEY, JSON.stringify(map && typeof map === 'object' ? map : {}))
+  } catch {}
+}
+
+function notice_is_read(id, updatedAt) {
+  const nid = String(id || '').trim()
+  if (!nid) return true
+  const ua = parseInt(String(updatedAt || '0'), 10) || 0
+  const m = notice_load_read_map()
+  const seen = parseInt(String(m[nid] == null ? '' : m[nid]), 10) || 0
+  return ua > 0 && seen >= ua
+}
+
+function notice_mark_read(id, updatedAt) {
+  const nid = String(id || '').trim()
+  if (!nid) return
+  const ua = parseInt(String(updatedAt || '0'), 10) || 0
+  const m = notice_load_read_map()
+  m[nid] = ua > 0 ? ua : Date.now()
+  notice_save_read_map(m)
+}
+
+async function notice_fetch_active_throttled(ctx) {
+  try {
+    const now = Date.now()
+    if (__NOTICE_CACHE__ && __NOTICE_CACHE__.json && __NOTICE_CACHE__.ts && (now - __NOTICE_CACHE__.ts) < NOTICE_PROBE_TTL_MS) {
+      return __NOTICE_CACHE__.json
+    }
+    if (__NOTICE_PROBE_INFLIGHT__) return await __NOTICE_PROBE_INFLIGHT__
+    if (!ctx) return null
+    __NOTICE_PROBE_INFLIGHT__ = (async () => {
+      const cfg = await loadCfg(ctx)
+      const json = await apiGet(ctx, cfg, 'notice/active/')
+      __NOTICE_CACHE__ = { ts: Date.now(), json }
+      return json
+    })()
+    try {
+      return await __NOTICE_PROBE_INFLIGHT__
+    } finally {
+      __NOTICE_PROBE_INFLIGHT__ = null
+    }
+  } catch {
+    __NOTICE_PROBE_INFLIGHT__ = null
+    return null
+  }
+}
+
+function notice_mount_banner(ctx, hostEl) {
+  try {
+    const host = hostEl
+    if (!host) return
+    host.className = 'ain-notice-host'
+    host.style.display = 'none'
+    host.textContent = ''
+
+    void (async () => {
+      const json = await notice_fetch_active_throttled(ctx)
+      const arr0 = json && Array.isArray(json.notices) ? json.notices : []
+      const arr = arr0.filter((x) => x && typeof x === 'object')
+      const unread = arr.filter((n) => !notice_is_read(n.id, n.updated_at))
+      if (!unread.length) {
+        host.style.display = 'none'
+        host.textContent = ''
+        return
+      }
+
+      let idx = 0
+      const render = () => {
+        const n = unread[idx] || unread[0]
+        if (!n) {
+          host.style.display = 'none'
+          host.textContent = ''
+          return
+        }
+
+        host.textContent = ''
+        host.style.display = ''
+
+        const wrap = document.createElement('div')
+        wrap.className = 'ain-notice'
+
+        const badge = document.createElement('div')
+        const lv = safeText(n.level || 'info').trim().toLowerCase()
+        const lv2 = (lv === 'warn' || lv === 'danger' || lv === 'info') ? lv : 'info'
+        badge.className = 'ain-notice-badge ' + lv2
+        badge.textContent = lv2.toUpperCase()
+        wrap.appendChild(badge)
+
+        const main = document.createElement('div')
+        main.className = 'ain-notice-main'
+
+        const title = document.createElement('div')
+        title.className = 'ain-notice-title'
+        title.textContent = safeText(n.title || '').trim() || t('通知', 'Notice')
+        main.appendChild(title)
+
+        const meta = document.createElement('div')
+        meta.className = 'ain-notice-meta'
+        const total = unread.length
+        meta.textContent = total > 1 ? (t('未读 ', 'Unread ') + String(idx + 1) + '/' + String(total)) : t('未读', 'Unread')
+        main.appendChild(meta)
+
+        const content = document.createElement('div')
+        content.className = 'ain-notice-content'
+        content.textContent = safeText(n.content || '').trim()
+        main.appendChild(content)
+
+        wrap.appendChild(main)
+
+        const actions = document.createElement('div')
+        actions.className = 'ain-notice-actions'
+
+        const btnToggle = document.createElement('button')
+        btnToggle.className = 'ain-notice-link'
+        btnToggle.textContent = t('详情', 'Details')
+        btnToggle.onclick = () => {
+          let hidden = true
+          try { hidden = window.getComputedStyle(content).display === 'none' } catch {}
+          content.style.display = hidden ? '' : 'none'
+          btnToggle.textContent = hidden ? t('收起', 'Collapse') : t('详情', 'Details')
+        }
+        actions.appendChild(btnToggle)
+
+        if (unread.length > 1) {
+          const btnNext = document.createElement('button')
+          btnNext.className = 'ain-notice-link'
+          btnNext.textContent = t('下一条', 'Next')
+          btnNext.onclick = () => {
+            idx = (idx + 1) % unread.length
+            render()
+          }
+          actions.appendChild(btnNext)
+        }
+
+        const btnRead = document.createElement('button')
+        btnRead.className = 'ain-btn gray'
+        btnRead.textContent = t('已读', 'Mark read')
+        btnRead.onclick = () => {
+          notice_mark_read(n.id, n.updated_at)
+          const left = unread.filter((x) => !notice_is_read(x.id, x.updated_at))
+          unread.length = 0
+          unread.push(...left)
+          idx = 0
+          render()
+        }
+        actions.appendChild(btnRead)
+
+        wrap.appendChild(actions)
+        host.appendChild(wrap)
+      }
+
+      render()
+    })()
   } catch {}
 }
 
