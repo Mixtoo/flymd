@@ -2295,6 +2295,7 @@ function ensureDialogStyle() {
 .ain-winbtn:hover{background:rgba(148,163,184,.15);color:#e2e8f0}
 .ain-close{font-size:20px}
 .ain-notice-host{display:block;padding:10px 20px;border-bottom:1px solid #334155;background:#0b1220}
+.ain-notice-host.ain-notice-embed{padding:10px 12px;border:1px solid #334155;border-bottom:0;border-radius:8px;margin:10px 0}
 .ain-notice{display:flex;gap:10px;align-items:flex-start}
 .ain-notice-badge{flex:0 0 auto;font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid #334155;color:#e2e8f0;user-select:none}
 .ain-notice-badge.info{background:rgba(59,130,246,.15);border-color:rgba(59,130,246,.45)}
@@ -3210,14 +3211,10 @@ async function openSettingsDialog(ctx) {
   body.appendChild(secSave)
 
   dlg.appendChild(head)
-  const noticeHost = document.createElement('div')
-  noticeHost.className = 'ain-notice-host'
-  dlg.appendChild(noticeHost)
   dlg.appendChild(body)
   overlay.appendChild(dlg)
   document.body.appendChild(overlay)
   __DIALOG__ = overlay
-  try { notice_mount_banner(ctx, noticeHost) } catch {}
 
   // 初次打开尝试刷新一次
   try { await refreshBilling() } catch {}
@@ -3360,12 +3357,11 @@ async function openUsageLogsDialog(ctx) {
   try { await refresh() } catch {}
 }
 
-function createDialogShell(title, onClose) {
+function createDialogShell(title, onClose, opts) {
   ensureDialogStyle()
   closeDialog()
   // 打开任意窗口时自动探测一次余额（仅用于低余额常驻提醒；做了节流）
   try { void probeLowBalanceWarnThrottled(__CTX__) } catch {}
-  // 打开任意窗口时，尝试展示通知（非阻断；失败忽略）
 
   const overlay = document.createElement('div')
   overlay.className = 'ain-overlay'
@@ -3414,16 +3410,12 @@ function createDialogShell(title, onClose) {
   body.className = 'ain-body'
 
   dlg.appendChild(head)
-  const noticeHost = document.createElement('div')
-  noticeHost.className = 'ain-notice-host'
-  dlg.appendChild(noticeHost)
   dlg.appendChild(body)
   overlay.appendChild(dlg)
   // 注意：不要通过点击遮罩关闭，避免拖拽选中文本时鼠标溢出误触导致窗口消失
 
   document.body.appendChild(overlay)
   __DIALOG__ = overlay
-  try { notice_mount_banner(__CTX__, noticeHost) } catch {}
   return { overlay, dlg, head, body, ttl }
 }
 
@@ -3991,11 +3983,16 @@ async function openWriteWithChoiceDialog(ctx) {
     throw new Error(t('请先在设置里填写上游 BaseURL 和模型', 'Please set upstream BaseURL and model in Settings first'))
   }
 
-  const { body } = createDialogShell(t('走向及续写', 'Options & Write'))
+  const { body } = createDialogShell(t('走向及续写', 'Options & Write'), null, { notice: 'none' })
 
   const sec = document.createElement('div')
   sec.className = 'ain-card'
   sec.innerHTML = `<div style="font-weight:700;margin-bottom:6px">${t('指令', 'Instruction')}</div>`
+
+  const noticeHost = document.createElement('div')
+  noticeHost.className = 'ain-notice-host ain-notice-embed'
+  sec.appendChild(noticeHost)
+  try { notice_mount_banner(ctx, noticeHost) } catch {}
 
   const inp = mkTextarea(
     t('输入本章目标/要求（Ctrl+Enter 生成走向候选）', 'Input goal/constraints (Ctrl+Enter to generate options)'),
@@ -7137,7 +7134,7 @@ async function notice_fetch_active_throttled(ctx) {
     if (!ctx) return null
     __NOTICE_PROBE_INFLIGHT__ = (async () => {
       const cfg = await loadCfg(ctx)
-      const json = await apiGet(ctx, cfg, 'notice/active/')
+      const json = await apiGet(ctx, cfg, 'ai/proxy/notice/active/')
       __NOTICE_CACHE__ = { ts: Date.now(), json }
       return json
     })()
@@ -7156,7 +7153,12 @@ function notice_mount_banner(ctx, hostEl) {
   try {
     const host = hostEl
     if (!host) return
-    host.className = 'ain-notice-host'
+    try {
+      if (host.classList) host.classList.add('ain-notice-host')
+      else host.className = 'ain-notice-host'
+    } catch {
+      host.className = 'ain-notice-host'
+    }
     host.style.display = 'none'
     host.textContent = ''
 
