@@ -41,7 +41,9 @@ FlyMD 是一款轻量级、高性能的本地 Markdown 编辑器,支持 PDF 高�
 
 ✅ 人物状态管理、章节字数统计，草稿审定，结构清晰  
 
-✅ 支持多模型协作 & 可配合Git版本控制插件
+✅ 支持多模型协作 & 可配合Git版本控制插件  
+
+✅ 独有后端Agent工具 分段管理，逻辑严密
 
 <img width="970" height="710" alt="e70dc0ff088e225df7343ca524ab50a2" src="https://github.com/user-attachments/assets/005545ee-6377-4f5a-9ae8-e21f7f3330d9" />
 
