@@ -314,6 +314,119 @@ function toMtimeMs(meta: any): number {
   return 0
 }
 
+function applyTextEditToTextarea(
+  ed: HTMLTextAreaElement,
+  start: number,
+  end: number,
+  text: string,
+  opt?: { preserveSelection?: boolean },
+): void {
+  // 关键点：不要直接 ed.value=...，那样通常不会进入浏览器/系统的撤销栈（Ctrl+Z 失效）
+  // 优先走“像用户输入一样”的路径，让编辑器撤销正常工作
+  const prev = String(ed.value || '')
+  const len = prev.length
+  const s = start >>> 0
+  const e = end >>> 0
+  const a = Math.max(0, Math.min(len, Math.min(s, e)))
+  const b = Math.max(0, Math.min(len, Math.max(s, e)))
+  const insert = String(text || '')
+
+  const doc = ed.ownerDocument
+  const prevActive = doc ? (doc.activeElement as any) : null
+  const prevSelStart = (() => {
+    try {
+      return ed.selectionStart >>> 0
+    } catch {
+      return 0
+    }
+  })()
+  const prevSelEnd = (() => {
+    try {
+      return ed.selectionEnd >>> 0
+    } catch {
+      return 0
+    }
+  })()
+  const prevScrollTop = (() => {
+    try {
+      return ed.scrollTop
+    } catch {
+      return 0
+    }
+  })()
+  const prevScrollLeft = (() => {
+    try {
+      return ed.scrollLeft
+    } catch {
+      return 0
+    }
+  })()
+
+  try {
+    ed.setSelectionRange(a, b)
+  } catch {}
+
+  let applied = false
+  let focusedByUs = false
+  try {
+    if (doc && typeof doc.execCommand === 'function') {
+      // execCommand 需要焦点：为了不破坏用户当前输入位置，写完后把焦点还回去
+      if (doc.activeElement !== ed) {
+        try {
+          ed.focus()
+          focusedByUs = true
+        } catch {}
+      }
+      applied = !!doc.execCommand('insertText', false, insert)
+    }
+  } catch {}
+
+  if (focusedByUs && prevActive && prevActive !== ed) {
+    try {
+      if (typeof prevActive.focus === 'function') {
+        try {
+          prevActive.focus({ preventScroll: true })
+        } catch {
+          prevActive.focus()
+        }
+      }
+    } catch {}
+  }
+
+  if (!applied) {
+    try {
+      if (typeof ed.setRangeText === 'function') {
+        ed.setRangeText(insert, a, b, 'end')
+        applied = true
+      }
+    } catch {}
+  }
+
+  if (!applied) {
+    ed.value = prev.slice(0, a) + insert + prev.slice(b)
+  }
+
+  const nextValue = String(ed.value || '')
+  const nextLen = nextValue.length
+  try {
+    if (opt && opt.preserveSelection) {
+      ed.setSelectionRange(
+        Math.min(prevSelStart, nextLen),
+        Math.min(prevSelEnd, nextLen),
+      )
+    } else {
+      const caret = Math.min(a + insert.length, nextLen)
+      ed.setSelectionRange(caret, caret)
+    }
+  }
+  catch {}
+
+  try {
+    ed.scrollTop = prevScrollTop
+    ed.scrollLeft = prevScrollLeft
+  } catch {}
+}
+
 async function readPluginMainCode(p: InstalledPlugin): Promise<string> {
   const path = `${p.dir}/${p.main || 'main.js'}`
   return await readTextFile(path as any, {
@@ -774,7 +887,13 @@ export function createPluginHost(
         try {
           const ed = deps.getEditor()
           if (!ed) return
-          ed.value = v
+          applyTextEditToTextarea(
+            ed,
+            0,
+            String(ed.value || '').length,
+            v,
+            { preserveSelection: true },
+          )
           deps.markDirtyAndRefresh()
           if (deps.isPreviewMode()) {
             void deps.renderPreview()
@@ -795,14 +914,7 @@ export function createPluginHost(
         try {
           const ed = deps.getEditor()
           if (!ed) return
-          const v = String(ed.value || '')
-          const a = Math.max(0, Math.min(start >>> 0, end >>> 0))
-          const b = Math.max(start >>> 0, end >>> 0)
-          ed.value =
-            v.slice(0, a) + String(text || '') + v.slice(b)
-          const caret = a + String(text || '').length
-          ed.selectionStart = caret
-          ed.selectionEnd = caret
+          applyTextEditToTextarea(ed, start, end, text)
           deps.markDirtyAndRefresh()
           if (deps.isPreviewMode()) {
             void deps.renderPreview()
@@ -817,14 +929,7 @@ export function createPluginHost(
           if (!ed) return
           const s = ed.selectionStart >>> 0
           const e = ed.selectionEnd >>> 0
-          const a = Math.min(s, e)
-          const b = Math.max(s, e)
-          const v = String(ed.value || '')
-          ed.value =
-            v.slice(0, a) + String(text || '') + v.slice(b)
-          const caret = a + String(text || '').length
-          ed.selectionStart = caret
-          ed.selectionEnd = caret
+          applyTextEditToTextarea(ed, Math.min(s, e), Math.max(s, e), text)
           deps.markDirtyAndRefresh()
           if (deps.isPreviewMode()) {
             void deps.renderPreview()
@@ -862,10 +967,7 @@ export function createPluginHost(
           }
 
           const md = `[${finalLabel}](${urlStr})`
-          ed.value = v.slice(0, a) + md + v.slice(b)
-          const caret = a + md.length
-          ed.selectionStart = caret
-          ed.selectionEnd = caret
+          applyTextEditToTextarea(ed, a, b, md)
 
           deps.markDirtyAndRefresh()
           if (deps.isPreviewMode()) {
@@ -2042,7 +2144,13 @@ export function createPluginHost(
           try {
             const ed = deps.getEditor()
             if (!ed) return
-            ed.value = v
+            applyTextEditToTextarea(
+              ed,
+              0,
+              String(ed.value || '').length,
+              v,
+              { preserveSelection: true },
+            )
             deps.markDirtyAndRefresh()
             if (deps.isPreviewMode()) {
               void deps.renderPreview()
