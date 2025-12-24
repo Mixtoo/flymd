@@ -7583,19 +7583,33 @@ function bindEvents() {
           if (id) { pre = document.querySelector(`pre[data-code-copy-id="${id}"]`) as HTMLElement | null }
         }
         if (pre) {
-          // 提取语言信息并构造 Markdown 格式
+          // 默认只复制代码文本；按住 Alt 点击则复制为 Markdown 围栏（兼容旧行为）
+          const copyAsMarkdownFence = !!((ev as MouseEvent | undefined)?.altKey)
           const codeEl = pre.querySelector('code') as HTMLElement | null
-          const raw = codeEl ? (codeEl.textContent || '') : (pre.textContent || '')
-          let lang = ''
-          if (codeEl) {
-            const codeClasses = codeEl.className || ''
-            const preClasses = pre.className || ''
-            const langMatch = (codeClasses + ' ' + preClasses).match(/language-(\w+)/)
-            if (langMatch && langMatch[1]) {
-              lang = langMatch[1]
+          const raw = (() => {
+            if (codeEl) return codeEl.textContent || ''
+            try {
+              const cloned = pre.cloneNode(true) as HTMLElement
+              try { (cloned.querySelector('.code-lnums') as HTMLElement | null)?.remove() } catch {}
+              return cloned.textContent || ''
+            } catch {
+              return pre.textContent || ''
             }
+          })()
+          if (!copyAsMarkdownFence) {
+            text = raw
+          } else {
+            let lang = ''
+            if (codeEl) {
+              const codeClasses = codeEl.className || ''
+              const preClasses = pre.className || ''
+              const langMatch = (codeClasses + ' ' + preClasses).match(/language-([a-z0-9_+-]+)/i)
+              if (langMatch && langMatch[1]) {
+                lang = langMatch[1]
+              }
+            }
+            text = lang ? ('```' + lang + '\n' + raw + '\n```') : ('```\n' + raw + '\n```')
           }
-          text = lang ? ('```' + lang + '\n' + raw + '\n```') : ('```\n' + raw + '\n```')
         } else {
           text = ''
         }
